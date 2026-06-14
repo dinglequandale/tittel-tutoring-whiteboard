@@ -7,6 +7,10 @@ everyone leaves, the board disappears.
 **You (the tutor) drive the view:** when you pan or zoom, every student's screen follows yours, so you
 always know they're looking at exactly what you're drawing.
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/dinglequandale/tittel-tutoring-whiteboard)
+
+One-click, free, no credit card. Gives you a permanent URL to bookmark and share.
+
 ## Features
 
 - Pencil with variable thickness & color, eraser, shapes, text, selection
