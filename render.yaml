@@ -1,0 +1,18 @@
+# One Node web service that serves the whiteboard AND runs the realtime backend.
+# Render supports WebSockets on all plans (including free).
+#
+# Deploy: push this repo to GitHub, then on Render choose
+#   New +  ->  Blueprint  ->  pick this repo. Render reads this file.
+services:
+  - type: web
+    name: tittel-whiteboard
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Optional: paste a tldraw license key to remove the watermark.
+      # - key: VITE_TLDRAW_LICENSE_KEY
+      #   value: your-key-here

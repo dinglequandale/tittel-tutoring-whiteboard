@@ -1,0 +1,156 @@
+:root {
+  --brand: #2563eb;
+  --brand-dark: #1d4ed8;
+  --ink: #0f172a;
+  --muted: #64748b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: var(--ink);
+}
+
+/* ---------- Landing page ---------- */
+.landing {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 1.25rem;
+  padding: 2rem;
+  background: radial-gradient(1200px 600px at 50% -10%, #eff6ff, #ffffff 60%);
+}
+
+.landing h1 {
+  font-size: clamp(1.8rem, 4vw, 2.75rem);
+  margin: 0;
+}
+
+.landing p {
+  color: var(--muted);
+  max-width: 34rem;
+  margin: 0;
+  line-height: 1.55;
+}
+
+.start-btn {
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  background: var(--brand);
+  color: white;
+  font-size: 1.15rem;
+  font-weight: 600;
+  padding: 0.9rem 1.6rem;
+  border-radius: 0.8rem;
+  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.28);
+  transition: transform 0.06s ease, background 0.15s ease;
+}
+
+.start-btn:hover {
+  background: var(--brand-dark);
+}
+
+.start-btn:active {
+  transform: translateY(1px);
+}
+
+.landing .hint {
+  font-size: 0.85rem;
+}
+
+/* ---------- Board chrome ---------- */
+.board-root {
+  position: fixed;
+  inset: 0;
+}
+
+.board-status {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 0.5rem;
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+
+/* Floating pill shown to the tutor with the share link / copy button. */
+.share-bar {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  padding: 0.35rem 0.4rem 0.35rem 0.9rem;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.12);
+  font-size: 0.85rem;
+  max-width: min(92vw, 560px);
+}
+
+.share-bar .role {
+  font-weight: 700;
+  color: var(--brand);
+  white-space: nowrap;
+}
+
+.share-bar .link {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 46vw;
+}
+
+.share-bar button {
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  background: var(--brand);
+  color: white;
+  font-weight: 600;
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.share-bar button:hover {
+  background: var(--brand-dark);
+}
+
+.toast {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2000;
+  background: #0f172a;
+  color: white;
+  padding: 0.6rem 1rem;
+  border-radius: 0.6rem;
+  font-size: 0.9rem;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.25);
+}
