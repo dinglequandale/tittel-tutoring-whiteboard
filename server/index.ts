@@ -87,14 +87,25 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
   const client = { socket: ws, role }
   room.controls.add(client)
 
-  // A student joining mid-session immediately snaps to the tutor's current view.
-  if (role === 'guest' && room.lastCamera) {
-    safeSend(ws, { type: 'camera', camera: room.lastCamera })
+  // A student joining mid-session immediately snaps to the tutor's current
+  // view — and into an already-open calculator with its current state.
+  if (role === 'guest') {
+    if (room.lastCamera) safeSend(ws, { type: 'camera', camera: room.lastCamera })
+    if (room.calcOpen) {
+      safeSend(ws, { type: 'calc', action: 'open' })
+      if (room.lastCalcState) safeSend(ws, { type: 'calc', action: 'state', state: room.lastCalcState })
+    }
+  }
+
+  const broadcastToGuests = (payload: unknown) => {
+    for (const c of room.controls) {
+      if (c.role === 'guest') safeSend(c.socket, payload)
+    }
   }
 
   ws.on('message', (data) => {
-    if (role !== 'host') return // only the tutor drives the camera
-    let msg: { type?: string; camera?: unknown }
+    if (role !== 'host') return // only the tutor drives camera + calculator
+    let msg: { type?: string; action?: string; camera?: unknown; state?: unknown }
     try {
       msg = JSON.parse(data.toString())
     } catch {
@@ -102,9 +113,12 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
     }
     if (msg?.type === 'camera' && msg.camera) {
       room.lastCamera = msg.camera
-      for (const c of room.controls) {
-        if (c.role === 'guest') safeSend(c.socket, { type: 'camera', camera: msg.camera })
-      }
+      broadcastToGuests({ type: 'camera', camera: msg.camera })
+    } else if (msg?.type === 'calc') {
+      if (msg.action === 'open') room.calcOpen = true
+      else if (msg.action === 'close') room.calcOpen = false
+      else if (msg.action === 'state') room.lastCalcState = msg.state
+      broadcastToGuests(msg)
     }
   })
 

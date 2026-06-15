@@ -18,6 +18,9 @@ One-click, free, no credit card. Gives you a permanent URL to bookmark and share
 - **Copy & paste**, including pasting an image or problem screenshot straight from your clipboard (`Ctrl+V`)
 - **Right-click drag to pan** (tutor); plus pinch / scroll zoom
 - **Synced viewport** — students are locked to the tutor's pan/zoom
+- **Live Desmos calculator** — the tutor clicks 🧮 Calculator to open a real Desmos graphing
+  calculator. It loads on demand (nothing is fetched until you open it), and every expression,
+  slider, and graph move you make streams live to a read-only mirror on every student's screen.
 - **Export** the board to PNG/SVG from the built-in menu (handy if a session is worth keeping)
 - Live cursors so you can see where each student is pointing
 - One-click shareable link, copied to your clipboard automatically
@@ -78,6 +81,9 @@ deploys anywhere that supports Node + WebSockets.
 - **tldraw watermark.** The board shows a small "made with tldraw" watermark on the free SDK license.
   To remove it, get a key from [tldraw.dev](https://tldraw.dev) and set `VITE_TLDRAW_LICENSE_KEY`
   (env var at build time, or in `render.yaml`).
+- **Desmos API key.** The calculator uses Desmos's official API. It defaults to Desmos's public demo
+  key, which is fine for trying it out; for a published app Desmos asks you to use your own (free) key
+  — request one at [desmos.com/api](https://www.desmos.com/api/) and set `VITE_DESMOS_API_KEY`.
 
 ## Smoke test
 
@@ -89,8 +95,11 @@ camera relay, late-join camera replay, and the sync-socket wiring.
 ```
 server/index.ts   http + WebSocket upgrades + asset store + camera relay + static serving
 server/rooms.ts   in-memory room registry + ephemeral cleanup
-client/src/Board.tsx       <Tldraw> + useSync + camera sync + right-click pan
-client/src/cameraSync.ts   host broadcasts camera; guests lock + follow
-client/src/Landing.tsx     "Start a new board" + link copy
-client/src/assetStore.ts   uploads pasted images to the server
+client/src/Board.tsx          <Tldraw> + useSync + camera sync + calculator toggle
+client/src/controlChannel.ts  one shared WS carrying camera + calculator messages
+client/src/cameraSync.ts      host broadcasts camera; guests lock + follow
+client/src/Calculator.tsx     live Desmos panel (tutor drives, students mirror read-only)
+client/src/desmos.ts          lazy-loads the Desmos API on first activation
+client/src/Landing.tsx        "Start a new board" + link copy
+client/src/assetStore.ts      uploads pasted images to the server
 ```

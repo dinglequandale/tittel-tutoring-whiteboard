@@ -67,10 +67,43 @@ guest.send(JSON.stringify({ type: 'camera', camera: { x: 999, y: 999, z: 9 } }))
 await wait(200)
 check('student cannot drive the camera (ignored)', hostGotMsg === false)
 
-// 4 (late join): a student joining now gets the last camera immediately
+// 4: live calculator relay tutor -> student ---------------------------------
+host.send(JSON.stringify({ type: 'calc', action: 'open' }))
+const calcOpenMsg = await nextMessage(guest)
+check('student receives calculator open', !!calcOpenMsg && JSON.parse(calcOpenMsg).action === 'open')
+const calcState = { version: 9, expressions: { list: [{ id: '1', latex: 'y=2x' }] } }
+host.send(JSON.stringify({ type: 'calc', action: 'state', state: calcState }))
+const calcStateMsg = await nextMessage(guest)
+check(
+  'student receives live calculator state',
+  !!calcStateMsg &&
+    JSON.parse(calcStateMsg).action === 'state' &&
+    JSON.parse(calcStateMsg).state.expressions.list[0].latex === 'y=2x',
+)
+
+// student cannot drive the calculator (guest->host calc messages are ignored)
+let hostGotCalc = false
+host.once('message', () => (hostGotCalc = true))
+guest.send(JSON.stringify({ type: 'calc', action: 'state', state: { hacked: true } }))
+await wait(200)
+check('student cannot drive the calculator (ignored)', hostGotCalc === false)
+
+// 5 (late join): a student joining now gets camera + open calculator + its state
 const lateGuest = await open(`${WS}/control/${ROOM}?role=guest`)
-const lateMsg = await nextMessage(lateGuest)
-check('late student snaps to last camera on join', !!lateMsg && JSON.stringify(JSON.parse(lateMsg).camera) === JSON.stringify(cam))
+const collected = []
+lateGuest.on('message', (d) => collected.push(JSON.parse(d.toString())))
+await wait(400)
+check(
+  'late student snaps to last camera on join',
+  collected.some((m) => m.type === 'camera' && JSON.stringify(m.camera) === JSON.stringify(cam)),
+)
+check('late student receives calculator open on join', collected.some((m) => m.type === 'calc' && m.action === 'open'))
+check(
+  'late student receives calculator state on join',
+  collected.some(
+    (m) => m.type === 'calc' && m.action === 'state' && m.state?.expressions?.list?.[0]?.latex === 'y=2x',
+  ),
+)
 
 // 5: /connect sync socket accepts upgrade and stays open ----------------------
 const sync = await open(`${WS}/connect/${ROOM}?sessionId=sess-1`)

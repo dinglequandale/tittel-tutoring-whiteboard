@@ -141,6 +141,109 @@ body {
   background: var(--brand-dark);
 }
 
+/* Tutor's calculator toggle, parked just under the share bar (clear of tldraw's
+   corner menus). */
+.calc-toggle {
+  position: fixed;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  appearance: none;
+  border: 1px solid #e2e8f0;
+  cursor: pointer;
+  background: white;
+  color: var(--ink);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.12);
+}
+
+.calc-toggle:hover {
+  background: #f8fafc;
+}
+
+/* Floating Desmos panel (resizable), parked bottom-right clear of the toolbar. */
+.calc-panel {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 1500;
+  width: min(440px, 92vw);
+  height: min(520px, 70vh);
+  min-width: 280px;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.7rem;
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.25);
+  overflow: hidden;
+  resize: both;
+}
+
+.calc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0.7rem;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  flex: 0 0 auto;
+}
+
+.calc-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--brand);
+}
+
+.calc-close {
+  appearance: none;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  color: var(--muted);
+  padding: 0.2rem 0.35rem;
+  border-radius: 0.3rem;
+}
+
+.calc-close:hover {
+  background: #e2e8f0;
+  color: var(--ink);
+}
+
+.calc-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.calc-desmos {
+  position: absolute;
+  inset: 0;
+}
+
+/* Transparent shield: students see the live calculator but can't touch it. */
+.calc-shield {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: transparent;
+  cursor: default;
+}
+
+.calc-error {
+  padding: 1rem;
+  color: #b91c1c;
+  font-size: 0.85rem;
+}
+
 .toast {
   position: fixed;
   bottom: 18px;

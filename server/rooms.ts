@@ -15,10 +15,14 @@ export interface Room {
   socketRoom: TLSocketRoom<any, void>
   /** Pasted/dropped images, keyed by asset id. */
   assets: Map<string, AssetBlob>
-  /** Camera-relay sockets (separate from the tldraw sync sockets). */
+  /** Control-channel sockets carrying camera + calculator relay (not tldraw sync). */
   controls: Set<ControlClient>
   /** The tutor's last broadcast camera, replayed to students who join late. */
   lastCamera: unknown | null
+  /** Whether the tutor's live Desmos calculator is currently open for everyone. */
+  calcOpen: boolean
+  /** The tutor's last calculator state, replayed to students who join late. */
+  lastCalcState: unknown | null
   closeTimer: ReturnType<typeof setTimeout> | null
 }
 
@@ -40,6 +44,8 @@ export function getOrCreateRoom(id: string): Room {
     assets: new Map(),
     controls: new Set(),
     lastCamera: null,
+    calcOpen: false,
+    lastCalcState: null,
     closeTimer: null,
     // Set just below; typed non-null for ergonomic access.
     socketRoom: undefined as unknown as TLSocketRoom<any, void>,

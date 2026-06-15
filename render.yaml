@@ -16,3 +16,6 @@ services:
       # Optional: paste a tldraw license key to remove the watermark.
       # - key: VITE_TLDRAW_LICENSE_KEY
       #   value: your-key-here
+      # Optional: your own free Desmos API key (defaults to Desmos's demo key).
+      # - key: VITE_DESMOS_API_KEY
+      #   value: your-key-here
