@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import express from 'express'
 import { WebSocketServer, WebSocket } from 'ws'
 import { nanoid } from 'nanoid'
-import { getOrCreateRoom, getRoom } from './rooms.ts'
+import { getOrCreateRoom, getRoom, type ControlClient } from './rooms.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.PORT) || 5858
@@ -84,8 +84,33 @@ function handleSync(ws: WebSocket, roomId: string, url: URL) {
 
 function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
   const room = getOrCreateRoom(roomId)
-  const client = { socket: ws, role }
+  const client: ControlClient = { socket: ws, role }
   room.controls.add(client)
+
+  const broadcastToGuests = (payload: unknown) => {
+    for (const c of room.controls) {
+      if (c.role === 'guest') safeSend(c.socket, payload)
+    }
+  }
+  // Calculator state goes to everyone except the sender (so a granted student's
+  // edits reach the tutor and the other students, without echoing back).
+  const broadcastToOthers = (payload: unknown) => {
+    for (const c of room.controls) {
+      if (c.socket !== ws) safeSend(c.socket, payload)
+    }
+  }
+  const sendRosterToHosts = () => {
+    const byId = new Map<string, { id: string; name: string; canEdit: boolean }>()
+    for (const c of room.controls) {
+      if (c.role === 'guest' && c.id) {
+        byId.set(c.id, { id: c.id, name: c.name || 'Student', canEdit: room.calcEditors.has(c.id) })
+      }
+    }
+    const students = [...byId.values()]
+    for (const c of room.controls) {
+      if (c.role === 'host') safeSend(c.socket, { type: 'roster', students })
+    }
+  }
 
   // A student joining mid-session immediately snaps to the tutor's current
   // view — and into an already-open calculator with its current state.
@@ -95,34 +120,81 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
       safeSend(ws, { type: 'calc', action: 'open' })
       if (room.lastCalcState) safeSend(ws, { type: 'calc', action: 'state', state: room.lastCalcState })
     }
-  }
-
-  const broadcastToGuests = (payload: unknown) => {
-    for (const c of room.controls) {
-      if (c.role === 'guest') safeSend(c.socket, payload)
-    }
+  } else {
+    // The tutor gets the current student roster on connect.
+    sendRosterToHosts()
   }
 
   ws.on('message', (data) => {
-    if (role !== 'host') return // only the tutor drives camera + calculator
-    let msg: { type?: string; action?: string; camera?: unknown; state?: unknown }
+    let msg: {
+      type?: string
+      action?: string
+      camera?: unknown
+      state?: unknown
+      userId?: string
+      name?: string
+      studentId?: string
+      canEdit?: boolean
+    }
     try {
       msg = JSON.parse(data.toString())
     } catch {
       return
     }
-    if (msg?.type === 'camera' && msg.camera) {
-      room.lastCamera = msg.camera
-      broadcastToGuests({ type: 'camera', camera: msg.camera })
-    } else if (msg?.type === 'calc') {
-      if (msg.action === 'open') room.calcOpen = true
-      else if (msg.action === 'close') room.calcOpen = false
-      else if (msg.action === 'state') room.lastCalcState = msg.state
-      broadcastToGuests(msg)
+
+    if (role === 'host') {
+      if (msg?.type === 'camera' && msg.camera) {
+        room.lastCamera = msg.camera
+        broadcastToGuests({ type: 'camera', camera: msg.camera })
+      } else if (msg?.type === 'calc') {
+        if (msg.action === 'open') {
+          room.calcOpen = true
+          broadcastToGuests(msg)
+        } else if (msg.action === 'close') {
+          room.calcOpen = false
+          broadcastToGuests(msg)
+        } else if (msg.action === 'state') {
+          room.lastCalcState = msg.state
+          broadcastToOthers(msg)
+        }
+      } else if (msg?.type === 'grant' && msg.studentId) {
+        // Tutor grants/revokes a specific student's calculator edit access.
+        if (msg.canEdit) room.calcEditors.add(msg.studentId)
+        else room.calcEditors.delete(msg.studentId)
+        for (const c of room.controls) {
+          if (c.role === 'guest' && c.id === msg.studentId) {
+            safeSend(c.socket, { type: 'calc-permission', canEdit: !!msg.canEdit })
+          }
+        }
+        sendRosterToHosts()
+      }
+    } else {
+      // Guest messages.
+      if (msg?.type === 'hello' && msg.userId) {
+        client.id = msg.userId
+        client.name = msg.name
+        // Re-grant on reconnect if this student still holds permission.
+        if (room.calcEditors.has(msg.userId)) {
+          safeSend(ws, { type: 'calc-permission', canEdit: true })
+        }
+        sendRosterToHosts()
+      } else if (
+        msg?.type === 'calc' &&
+        msg.action === 'state' &&
+        client.id &&
+        room.calcEditors.has(client.id)
+      ) {
+        // A granted student's edits propagate to the tutor and other students.
+        room.lastCalcState = msg.state
+        broadcastToOthers(msg)
+      }
     }
   })
 
-  ws.on('close', () => room.controls.delete(client))
+  ws.on('close', () => {
+    room.controls.delete(client)
+    if (role === 'guest') sendRosterToHosts()
+  })
   ws.on('error', () => {
     try {
       ws.close()

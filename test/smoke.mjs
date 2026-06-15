@@ -105,6 +105,49 @@ check(
   ),
 )
 
+// 6: identity + roster -------------------------------------------------------
+const hostInbox = []
+host.on('message', (d) => hostInbox.push(JSON.parse(d.toString())))
+guest.send(JSON.stringify({ type: 'hello', userId: 'stu-1', name: 'Fox 42' }))
+await wait(200)
+const roster = [...hostInbox].reverse().find((m) => m.type === 'roster')
+check('tutor receives roster after student hello', !!roster && roster.students.some((s) => s.id === 'stu-1' && s.name === 'Fox 42'))
+check('student starts as view-only in roster', !!roster && roster.students.find((s) => s.id === 'stu-1')?.canEdit === false)
+
+// 7: grant edit access -------------------------------------------------------
+const permMsg = nextMessage(guest)
+host.send(JSON.stringify({ type: 'grant', studentId: 'stu-1', canEdit: true }))
+const perm = await permMsg
+check('granted student is told it can edit', !!perm && JSON.parse(perm).type === 'calc-permission' && JSON.parse(perm).canEdit === true)
+await wait(100)
+const roster2 = [...hostInbox].reverse().find((m) => m.type === 'roster')
+check('roster reflects granted student', !!roster2 && roster2.students.find((s) => s.id === 'stu-1')?.canEdit === true)
+
+// 8: granted student's edits propagate to the tutor (bidirectional) ----------
+const hostState = nextMessage(host)
+const studentEdit = { version: 9, expressions: { list: [{ id: '2', latex: 'y=x^2' }] } }
+guest.send(JSON.stringify({ type: 'calc', action: 'state', state: studentEdit }))
+const got = await hostState
+check(
+  "tutor receives granted student's calculator edit",
+  !!got && JSON.parse(got).action === 'state' && JSON.parse(got).state.expressions.list[0].latex === 'y=x^2',
+)
+
+// 9: revoke edit access ------------------------------------------------------
+const revokeMsg = nextMessage(guest)
+host.send(JSON.stringify({ type: 'grant', studentId: 'stu-1', canEdit: false }))
+const revoke = await revokeMsg
+check('revoked student is told it cannot edit', !!revoke && JSON.parse(revoke).canEdit === false)
+// after revoke, the student's calculator edits are ignored again
+const before = hostInbox.length
+guest.send(JSON.stringify({ type: 'calc', action: 'state', state: { sneaky: true } }))
+await wait(200)
+const after = hostInbox.slice(before)
+check(
+  'revoked student can no longer drive the calculator',
+  !after.some((m) => m.type === 'calc' && m.action === 'state'),
+)
+
 // 5: /connect sync socket accepts upgrade and stays open ----------------------
 const sync = await open(`${WS}/connect/${ROOM}?sessionId=sess-1`)
 await wait(1500)

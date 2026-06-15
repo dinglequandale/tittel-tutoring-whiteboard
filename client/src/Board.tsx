@@ -7,7 +7,7 @@ import { makeAssetStore } from './assetStore'
 import { setupCameraSync } from './cameraSync'
 import { setupRightClickPan } from './rightClickPan'
 import { ControlChannel } from './controlChannel'
-import { Calculator } from './Calculator'
+import { Calculator, type Student } from './Calculator'
 
 function connectUrl(roomId: string) {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -25,6 +25,22 @@ const userId = (() => {
   return v
 })()
 
+// A friendly per-tab student name so the tutor can tell students apart in the
+// roster — it also labels the student's live cursor on the board.
+const ANIMALS = [
+  'Fox', 'Owl', 'Bee', 'Otter', 'Hawk', 'Lynx', 'Wolf', 'Crane', 'Newt', 'Toad',
+  'Mole', 'Wren', 'Seal', 'Ibis', 'Lark', 'Puma', 'Stag', 'Vole', 'Finch', 'Heron',
+]
+const studentName = (() => {
+  const key = 'whiteboard-name'
+  let v = sessionStorage.getItem(key)
+  if (!v) {
+    v = `${ANIMALS[Math.floor(Math.random() * ANIMALS.length)]} ${Math.floor(10 + Math.random() * 90)}`
+    sessionStorage.setItem(key, v)
+  }
+  return v
+})()
+
 export function Board({ roomId, isHost }: { roomId: string; isHost: boolean }) {
   const assets = useMemo(() => makeAssetStore(roomId), [roomId])
   const store = useSync({
@@ -32,7 +48,7 @@ export function Board({ roomId, isHost }: { roomId: string; isHost: boolean }) {
     assets,
     userInfo: {
       id: userId,
-      name: isHost ? 'Tutor' : 'Student',
+      name: isHost ? 'Tutor' : studentName,
       color: isHost ? '#2563eb' : '#16a34a',
     },
   })
@@ -40,6 +56,10 @@ export function Board({ roomId, isHost }: { roomId: string; isHost: boolean }) {
   const [editor, setEditor] = useState<Editor | null>(null)
   const [channel, setChannel] = useState<ControlChannel | null>(null)
   const [calcOpen, setCalcOpen] = useState(false)
+  // Host: roster of connected students with their calculator-edit permission.
+  const [students, setStudents] = useState<Student[]>([])
+  // Guest: whether the tutor has granted this student calculator edit access.
+  const [calcCanEdit, setCalcCanEdit] = useState(false)
   // Latest calculator state seen on the wire, handed to a freshly opened guest panel.
   const lastCalcState = useRef<unknown>(null)
 
@@ -64,14 +84,28 @@ export function Board({ roomId, isHost }: { roomId: string; isHost: boolean }) {
     }
   }, [editor, channel, isHost])
 
-  // Students react to the tutor opening/closing the calculator and track its state.
+  // Tutor: keep the live student roster (names + edit permission) up to date.
+  useEffect(() => {
+    if (!channel || !isHost) return
+    return channel.on('roster', (m) => setStudents(m.students ?? []))
+  }, [channel, isHost])
+
+  // Student: react to the tutor opening/closing the calculator, track its state,
+  // follow permission changes, and announce identity on every (re)connect.
   useEffect(() => {
     if (!channel || isHost) return
-    return channel.on('calc', (m) => {
-      if (m.action === 'open') setCalcOpen(true)
-      else if (m.action === 'close') setCalcOpen(false)
-      else if (m.action === 'state') lastCalcState.current = m.state
-    })
+    const offs = [
+      channel.on('calc', (m) => {
+        if (m.action === 'open') setCalcOpen(true)
+        else if (m.action === 'close') setCalcOpen(false)
+        else if (m.action === 'state') lastCalcState.current = m.state
+      }),
+      channel.on('calc-permission', (m) => setCalcCanEdit(!!m.canEdit)),
+      channel.on('open', () => channel.send({ type: 'hello', userId, name: studentName })),
+    ]
+    // Also announce immediately in case the socket is already open.
+    channel.send({ type: 'hello', userId, name: studentName })
+    return () => offs.forEach((off) => off())
   }, [channel, isHost])
 
   if (store.status === 'loading') {
@@ -109,6 +143,11 @@ export function Board({ roomId, isHost }: { roomId: string; isHost: boolean }) {
           isHost={isHost}
           initialState={lastCalcState.current}
           onClose={() => setCalcOpen(false)}
+          canEdit={calcCanEdit}
+          students={students}
+          onToggleGrant={(studentId, next) =>
+            channel.send({ type: 'grant', studentId, canEdit: next })
+          }
         />
       )}
     </div>

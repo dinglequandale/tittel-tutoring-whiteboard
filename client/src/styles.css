@@ -244,6 +244,82 @@ body {
   font-size: 0.85rem;
 }
 
+/* Tutor-only footer: grant/revoke each student's calculator edit access. */
+.calc-roster {
+  flex: 0 0 auto;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+  padding: 0.45rem 0.6rem;
+  max-height: 30%;
+  overflow-y: auto;
+}
+
+.calc-roster-title {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+}
+
+.calc-roster-empty {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.calc-roster-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.calc-grant {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  border: 1px solid #e2e8f0;
+  background: white;
+  border-radius: 999px;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.78rem;
+  color: var(--ink);
+}
+
+.calc-grant:hover {
+  border-color: #cbd5e1;
+}
+
+.calc-grant-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #cbd5e1;
+}
+
+.calc-grant.on {
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+}
+
+.calc-grant.on .calc-grant-dot {
+  background: #22c55e;
+}
+
+.calc-grant-name {
+  font-weight: 600;
+}
+
+.calc-grant-state {
+  color: var(--muted);
+}
+
+.calc-grant.on .calc-grant-state {
+  color: #047857;
+}
+
 .toast {
   position: fixed;
   bottom: 18px;
