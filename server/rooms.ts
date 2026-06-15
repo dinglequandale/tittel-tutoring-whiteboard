@@ -8,14 +8,7 @@ const GRACE_MS = 30_000
 
 type AssetBlob = { data: Buffer; contentType: string }
 
-export type ControlClient = {
-  socket: WsSocket
-  role: 'host' | 'guest'
-  /** Stable per-tab user id (sent via the 'hello' message). */
-  id?: string
-  /** Friendly display name, matches the student's cursor label. */
-  name?: string
-}
+export type ControlClient = { socket: WsSocket; role: 'host' | 'guest' }
 
 export interface Room {
   id: string
@@ -30,8 +23,8 @@ export interface Room {
   calcOpen: boolean
   /** The tutor's last calculator state, replayed to students who join late. */
   lastCalcState: unknown | null
-  /** User ids the tutor has granted live calculator edit access (survives reconnects). */
-  calcEditors: Set<string>
+  /** Whether all students may edit the shared calculator (tutor-toggled). */
+  studentsCanEdit: boolean
   closeTimer: ReturnType<typeof setTimeout> | null
 }
 
@@ -55,7 +48,7 @@ export function getOrCreateRoom(id: string): Room {
     lastCamera: null,
     calcOpen: false,
     lastCalcState: null,
-    calcEditors: new Set(),
+    studentsCanEdit: false,
     closeTimer: null,
     // Set just below; typed non-null for ergonomic access.
     socketRoom: undefined as unknown as TLSocketRoom<any, void>,

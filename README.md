@@ -21,9 +21,9 @@ One-click, free, no credit card. Gives you a permanent URL to bookmark and share
 - **Live Desmos calculator** — the tutor clicks 🧮 Calculator to open a real Desmos graphing
   calculator. It loads on demand (nothing is fetched until you open it), and every expression,
   slider, and graph move you make streams live to a read-only mirror on every student's screen.
-  The calculator panel lists connected students; click a student to **grant or revoke** live edit
-  access (a binary toggle). Granted students can drive the shared calculator themselves, and their
-  changes stream back to you and everyone else; revoke returns them to view-only.
+  A **"Students can edit" switch** in the panel flips between view-only (just you drive) and
+  open editing (every student can drive the shared calculator, with changes flowing back to
+  everyone). Default is off.
 - **Export** the board to PNG/SVG from the built-in menu (handy if a session is worth keeping)
 - Live cursors so you can see where each student is pointing
 - One-click shareable link, copied to your clipboard automatically

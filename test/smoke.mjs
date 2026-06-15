@@ -105,48 +105,46 @@ check(
   ),
 )
 
-// 6: identity + roster -------------------------------------------------------
+// 6: global edit access toggle (all students) -------------------------------
 const hostInbox = []
 host.on('message', (d) => hostInbox.push(JSON.parse(d.toString())))
-guest.send(JSON.stringify({ type: 'hello', userId: 'stu-1', name: 'Fox 42' }))
-await wait(200)
-const roster = [...hostInbox].reverse().find((m) => m.type === 'roster')
-check('tutor receives roster after student hello', !!roster && roster.students.some((s) => s.id === 'stu-1' && s.name === 'Fox 42'))
-check('student starts as view-only in roster', !!roster && roster.students.find((s) => s.id === 'stu-1')?.canEdit === false)
+const accessMsg = nextMessage(guest)
+host.send(JSON.stringify({ type: 'calc-access', allow: true }))
+const access = await accessMsg
+check('students are told editing is enabled', !!access && JSON.parse(access).type === 'calc-access' && JSON.parse(access).allow === true)
 
-// 7: grant edit access -------------------------------------------------------
-const permMsg = nextMessage(guest)
-host.send(JSON.stringify({ type: 'grant', studentId: 'stu-1', canEdit: true }))
-const perm = await permMsg
-check('granted student is told it can edit', !!perm && JSON.parse(perm).type === 'calc-permission' && JSON.parse(perm).canEdit === true)
-await wait(100)
-const roster2 = [...hostInbox].reverse().find((m) => m.type === 'roster')
-check('roster reflects granted student', !!roster2 && roster2.students.find((s) => s.id === 'stu-1')?.canEdit === true)
-
-// 8: granted student's edits propagate to the tutor (bidirectional) ----------
+// 7: while enabled, a student's edits propagate to the tutor -----------------
 const hostState = nextMessage(host)
 const studentEdit = { version: 9, expressions: { list: [{ id: '2', latex: 'y=x^2' }] } }
 guest.send(JSON.stringify({ type: 'calc', action: 'state', state: studentEdit }))
 const got = await hostState
 check(
-  "tutor receives granted student's calculator edit",
+  "tutor receives a student's calculator edit when enabled",
   !!got && JSON.parse(got).action === 'state' && JSON.parse(got).state.expressions.list[0].latex === 'y=x^2',
 )
 
-// 9: revoke edit access ------------------------------------------------------
-const revokeMsg = nextMessage(guest)
-host.send(JSON.stringify({ type: 'grant', studentId: 'stu-1', canEdit: false }))
-const revoke = await revokeMsg
-check('revoked student is told it cannot edit', !!revoke && JSON.parse(revoke).canEdit === false)
-// after revoke, the student's calculator edits are ignored again
+// 8: disable editing again ---------------------------------------------------
+const offMsg = nextMessage(guest)
+host.send(JSON.stringify({ type: 'calc-access', allow: false }))
+const off = await offMsg
+check('students are told editing is disabled', !!off && JSON.parse(off).allow === false)
 const before = hostInbox.length
 guest.send(JSON.stringify({ type: 'calc', action: 'state', state: { sneaky: true } }))
 await wait(200)
 const after = hostInbox.slice(before)
 check(
-  'revoked student can no longer drive the calculator',
+  'student cannot edit once disabled again',
   !after.some((m) => m.type === 'calc' && m.action === 'state'),
 )
+
+// 9: a late student is told the current edit-access setting on join ----------
+host.send(JSON.stringify({ type: 'calc-access', allow: true }))
+await wait(100)
+const newGuest = await open(`${WS}/control/${ROOM}?role=guest`)
+const joinMsgs = []
+newGuest.on('message', (d) => joinMsgs.push(JSON.parse(d.toString())))
+await wait(300)
+check('late student receives current edit-access on join', joinMsgs.some((m) => m.type === 'calc-access' && m.allow === true))
 
 // 5: /connect sync socket accepts upgrade and stays open ----------------------
 const sync = await open(`${WS}/connect/${ROOM}?sessionId=sess-1`)
