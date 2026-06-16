@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Tldraw, useValue, type Editor } from 'tldraw'
+import { Tldraw, useValue, type Editor, type TLComponents } from 'tldraw'
 import 'tldraw/tldraw.css'
 import { useSync } from '@tldraw/sync'
 import { nanoid } from 'nanoid'
@@ -199,6 +199,13 @@ function BoardCanvas({
   // Live-toggleable follow controllers for camera + page.
   const cameraCtl = useRef<FollowController | null>(null)
   const pageCtl = useRef<FollowController | null>(null)
+  // Whether this student may draw. Small classes: always. Large classes: only
+  // after the tutor grants their userId. Drives the toolbar visibility + the
+  // hand-tool backstop.
+  const isLarge = mode === 'large'
+  const [canWrite, setCanWrite] = useState(!isLarge)
+  const canWriteRef = useRef(canWrite)
+  canWriteRef.current = canWrite
 
   // Camera + page follow + right-click pan once both the editor and channel exist.
   // Initial follow respects the current free-reign state; later toggles are applied
@@ -270,42 +277,53 @@ function BoardCanvas({
     }
   }
 
-  // Large-class students can't edit the board until the tutor grants them write
-  // access (matched on their own userId). We enforce this by pinning them to the
-  // 'hand' tool — they can still pan/zoom and page-navigate (needed for free
-  // reign) but can't create/select/move shapes. (tldraw's own `isReadonly` is
-  // driven by the sync layer and re-asserted on every instance change, so we
-  // can't toggle it live from the client — the hand-tool pin is the dynamic,
-  // trust-based equivalent.)
-  //
-  // The correction is deferred (setTimeout 0) so we never mutate the editor from
-  // inside a reactive flush / store-listener callback, which corrupts tldraw's
-  // effect scheduler.
+  // Large-class students can't draw until the tutor grants their userId.
   useEffect(() => {
-    if (!editor || isHost || mode !== 'large') return
-    let canWrite = false
+    if (isHost || !isLarge) return
+    return channel.on('access', (m) => {
+      if (m.userId === userId) setCanWrite(!!m.allow)
+    })
+  }, [channel, isHost, isLarge])
+
+  // The toolbar/page-menu are hidden for locked students (below), but tool
+  // keyboard shortcuts could still switch them to a drawing tool — so we keep a
+  // silent backstop that pins a locked student to the 'hand' tool. The
+  // correction is deferred (setTimeout 0) so we never mutate the editor from
+  // inside a store-listener callback, which corrupts tldraw's effect scheduler.
+  useEffect(() => {
+    if (!editor || isHost || !isLarge) return
     const pinIfLocked = () => {
-      if (!canWrite && editor.getCurrentToolId() !== 'hand') editor.setCurrentTool('hand')
+      if (!canWriteRef.current && editor.getCurrentToolId() !== 'hand') editor.setCurrentTool('hand')
     }
     const defer = () => setTimeout(pinIfLocked, 0)
-
     defer() // lock on entry
-    const off = channel.on('access', (m) => {
-      if (m.userId !== userId) return
-      canWrite = !!m.allow
-      if (canWrite) editor.setCurrentTool('select') // hand them a real tool
-      else defer()
-    })
-    // Re-pin if a locked student tries to switch tools (tool id is session state).
-    const unlisten = editor.store.listen(() => { if (!canWrite) defer() }, {
+    const unlisten = editor.store.listen(() => { if (!canWriteRef.current) defer() }, {
       scope: 'session',
       source: 'user',
     })
-    return () => {
-      off()
-      unlisten()
-    }
-  }, [editor, isHost, mode, channel])
+    return () => unlisten()
+  }, [editor, isHost, isLarge])
+
+  // On grant, hand the student a real (select) tool; on revoke, snap them back to
+  // 'hand' immediately (otherwise they could still drag/select shapes even with
+  // the toolbar hidden). Runs in an effect — a safe context, not a reactive flush.
+  useEffect(() => {
+    if (!editor || isHost || !isLarge) return
+    editor.setCurrentTool(canWrite ? 'select' : 'hand')
+  }, [canWrite, editor, isHost, isLarge])
+
+  // Hide editing UI from students per their state:
+  //  - Toolbar (draw tools + image upload): only when they may write.
+  //  - PageMenu (create/switch pages): only while roaming under free reign;
+  //    otherwise they're following the tutor and shouldn't wander.
+  // The host always keeps the full UI.
+  const components = useMemo<TLComponents>(() => {
+    if (isHost) return {}
+    const c: TLComponents = {}
+    if (!canWrite) c.Toolbar = null
+    if (!freeReign) c.PageMenu = null
+    return c
+  }, [isHost, canWrite, freeReign])
 
   // Students follow the tutor opening/closing the calculator, track its state,
   // and follow the edit-access setting.
@@ -373,6 +391,7 @@ function BoardCanvas({
       <Tldraw
         store={store.store}
         onMount={setEditor}
+        components={components}
         licenseKey={import.meta.env.VITE_TLDRAW_LICENSE_KEY}
       />
 
