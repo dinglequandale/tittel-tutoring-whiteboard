@@ -108,6 +108,7 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
     if (room.lastCamera) safeSend(ws, { type: 'camera', camera: room.lastCamera })
     if (room.lastPage) safeSend(ws, { type: 'page', pageId: room.lastPage })
     safeSend(ws, { type: 'calc-access', allow: room.studentsCanEdit })
+    safeSend(ws, { type: 'free-reign', on: room.freeReign })
     if (room.calcOpen) {
       safeSend(ws, { type: 'calc', action: 'open' })
       if (room.lastCalcState) safeSend(ws, { type: 'calc', action: 'state', state: room.lastCalcState })
@@ -121,6 +122,7 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
       camera?: unknown
       state?: unknown
       allow?: boolean
+      on?: boolean
       pageId?: string
       mode?: string
       userId?: string
@@ -148,6 +150,9 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
         if (msg.allow) room.writers.add(msg.userId)
         else room.writers.delete(msg.userId)
         broadcastToGuests({ type: 'access', userId: msg.userId, allow: !!msg.allow })
+      } else if (msg?.type === 'free-reign') {
+        room.freeReign = !!msg.on
+        broadcastToGuests({ type: 'free-reign', on: room.freeReign })
       } else if (msg?.type === 'calc') {
         if (msg.action === 'open') {
           room.calcOpen = true

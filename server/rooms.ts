@@ -31,6 +31,8 @@ export interface Room {
   mode: 'small' | 'large'
   /** In large mode, the set of student userIds the tutor has granted write access. */
   writers: Set<string>
+  /** Free reign: when on, students roam pages/zoom freely and use personal calcs. */
+  freeReign: boolean
   closeTimer: ReturnType<typeof setTimeout> | null
 }
 
@@ -58,6 +60,7 @@ export function getOrCreateRoom(id: string): Room {
     studentsCanEdit: false,
     mode: 'small',
     writers: new Set(),
+    freeReign: false,
     closeTimer: null,
     // Set just below; typed non-null for ergonomic access.
     socketRoom: undefined as unknown as TLSocketRoom<any, void>,

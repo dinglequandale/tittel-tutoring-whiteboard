@@ -200,6 +200,32 @@ check('late student receives current edit-access on join', joinMsgs.some((m) => 
   for (const ws of [h, g, late]) ws.close()
 }
 
+// 11: free-reign relay + late-join replay ------------------------------------
+{
+  const r = `free-${Math.random().toString(36).slice(2, 8)}`
+  const h = await open(`${WS}/control/${r}?role=host`)
+  const g = await open(`${WS}/control/${r}?role=guest`)
+  await wait(100)
+  const frMsgs = []
+  g.on('message', (d) => frMsgs.push(JSON.parse(d.toString())))
+  h.send(JSON.stringify({ type: 'free-reign', on: true }))
+  await wait(150)
+  check('student receives free-reign on', frMsgs.some((x) => x.type === 'free-reign' && x.on === true))
+  // late joiner is told free reign is currently on
+  const late = await open(`${WS}/control/${r}?role=guest`)
+  const lateFr = []
+  late.on('message', (d) => lateFr.push(JSON.parse(d.toString())))
+  await wait(300)
+  check('late student receives current free-reign on join', lateFr.some((x) => x.type === 'free-reign' && x.on === true))
+  // student cannot drive free reign
+  let hostGotFr = false
+  h.once('message', () => (hostGotFr = true))
+  g.send(JSON.stringify({ type: 'free-reign', on: false }))
+  await wait(200)
+  check('student cannot drive free reign (ignored)', hostGotFr === false)
+  for (const ws of [h, g, late]) ws.close()
+}
+
 // 5: /connect sync socket accepts upgrade and stays open ----------------------
 const sync = await open(`${WS}/connect/${ROOM}?sessionId=sess-1`)
 await wait(1500)

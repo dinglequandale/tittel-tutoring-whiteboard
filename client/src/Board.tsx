@@ -4,7 +4,7 @@ import 'tldraw/tldraw.css'
 import { useSync } from '@tldraw/sync'
 import { nanoid } from 'nanoid'
 import { makeAssetStore } from './assetStore'
-import { setupCameraSync } from './cameraSync'
+import { setupCameraSync, type FollowController } from './cameraSync'
 import { setupPageSync } from './pageSync'
 import { setupRightClickPan } from './rightClickPan'
 import { ControlChannel } from './controlChannel'
@@ -189,19 +189,59 @@ function BoardCanvas({
   const [lessonStatus, setLessonStatus] = useState<string | null>(null)
   // Large-class write grants the tutor has handed out, keyed by student userId.
   const [granted, setGranted] = useState<Set<string>>(() => new Set())
+  // Free reign: host toggles it; guests follow. Off = locked to the tutor.
+  const [freeReign, setFreeReign] = useState(false)
+  const freeReignRef = useRef(freeReign)
+  freeReignRef.current = freeReign
+  // Guest's private scratch calculator (only while free reign is on).
+  const [personalCalcOpen, setPersonalCalcOpen] = useState(false)
+  // Live-toggleable follow controllers for camera + page.
+  const cameraCtl = useRef<FollowController | null>(null)
+  const pageCtl = useRef<FollowController | null>(null)
 
   // Camera + page follow + right-click pan once both the editor and channel exist.
+  // Initial follow respects the current free-reign state; later toggles are applied
+  // live via the controllers (below) rather than tearing this down.
   useEffect(() => {
     if (!editor) return
-    const stopCamera = setupCameraSync(editor, channel, isHost)
-    const stopPage = setupPageSync(editor, channel, isHost)
+    const follow = !freeReignRef.current
+    const camera = setupCameraSync(editor, channel, isHost, follow)
+    const page = setupPageSync(editor, channel, isHost, follow)
+    cameraCtl.current = camera
+    pageCtl.current = page
     const stopPan = isHost ? setupRightClickPan(editor) : undefined
     return () => {
-      stopCamera()
-      stopPage()
+      camera.stop()
+      page.stop()
       stopPan?.()
+      cameraCtl.current = null
+      pageCtl.current = null
     }
   }, [editor, channel, isHost])
+
+  // Apply free-reign changes to the follow controllers without re-creating them.
+  useEffect(() => {
+    cameraCtl.current?.setFollow(!freeReign)
+    pageCtl.current?.setFollow(!freeReign)
+  }, [freeReign])
+
+  // Guest learns free-reign state (and live changes) from the tutor.
+  useEffect(() => {
+    if (isHost) return
+    return channel.on('free-reign', (m) => setFreeReign(!!m.on))
+  }, [channel, isHost])
+
+  // While roaming, a guest gets a private calculator opened for them; closing
+  // free reign tucks it away again.
+  useEffect(() => {
+    if (isHost) return
+    setPersonalCalcOpen(freeReign)
+  }, [freeReign, isHost])
+
+  function toggleFreeReign(on: boolean) {
+    setFreeReign(on)
+    channel.send({ type: 'free-reign', on })
+  }
 
   // Large-class students start read-only and unlock only when the tutor grants
   // them write access (matched on their own userId). Trust-based, client-side.
@@ -304,13 +344,30 @@ function BoardCanvas({
           <button className="dock-btn" onClick={() => lessonInputRef.current?.click()}>
             📄 Load lesson
           </button>
+          <button
+            className={`dock-btn ${freeReign ? 'primary' : ''}`}
+            title="Let students roam pages/zoom freely and use their own calculators"
+            onClick={() => toggleFreeReign(!freeReign)}
+          >
+            {freeReign ? '🔓 Free reign: On' : '🔒 Free reign: Off'}
+          </button>
           <button className="dock-btn" onClick={() => setCalcOpen((v) => !v)}>
             {calcOpen ? 'Hide calculator' : '🧮 Calculator'}
           </button>
         </div>
       )}
 
-      {calcOpen && (
+      {/* A roaming student's own dock: just their private calculator toggle. */}
+      {!isHost && freeReign && (
+        <div className="tutor-dock">
+          <button className="dock-btn" onClick={() => setPersonalCalcOpen((v) => !v)}>
+            {personalCalcOpen ? 'Hide calculator' : '🧮 My calculator'}
+          </button>
+        </div>
+      )}
+
+      {/* Shared (tutor-driven) calculator: host always; students only when following. */}
+      {(isHost ? calcOpen : calcOpen && !freeReign) && (
         <Calculator
           channel={channel}
           isHost={isHost}
@@ -319,6 +376,11 @@ function BoardCanvas({
           studentsCanEdit={studentsCanEdit}
           onToggleAccess={toggleAccess}
         />
+      )}
+
+      {/* A roaming student's private, non-synced scratch calculator. */}
+      {!isHost && freeReign && personalCalcOpen && (
+        <Calculator channel={channel} isHost={false} personal />
       )}
     </div>
   )

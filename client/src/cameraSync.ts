@@ -3,29 +3,65 @@ import type { ControlChannel } from './controlChannel'
 
 type Camera = { x: number; y: number; z: number }
 
+/** A guest sync controller whose "follow the tutor" behavior can be toggled live. */
+export interface FollowController {
+  stop: () => void
+  /** true = lock to the tutor (and snap to the latest); false = roam freely. */
+  setFollow: (follow: boolean) => void
+}
+
 // Keeps every viewer's camera locked to the tutor's, over the shared control
 // channel.
 //  - Tutor (host): broadcasts its camera on every change.
-//  - Student (guest): camera is locked and snapped to whatever the tutor sends,
-//    so the student literally cannot drift away from what the tutor is showing.
-export function setupCameraSync(editor: Editor, channel: ControlChannel, isHost: boolean): () => void {
+//  - Student (guest): camera is locked and snapped to whatever the tutor sends.
+//    When free reign is on the lock is released so the student can roam; turning
+//    it back off re-locks and snaps to the tutor's latest camera.
+export function setupCameraSync(
+  editor: Editor,
+  channel: ControlChannel,
+  isHost: boolean,
+  initialFollow = true,
+): FollowController {
   const cleanups: Array<() => void> = []
 
   if (!isHost) {
-    // ---- Guest: lock the camera and follow the tutor ----
-    const lock = () => {
+    // ---- Guest: follow the tutor (toggleable) ----
+    let following = initialFollow
+    let last: Camera | null = null
+
+    const setLocked = (locked: boolean) => {
       const opts = editor.getCameraOptions()
-      editor.setCameraOptions({ ...opts, isLocked: true })
+      editor.setCameraOptions({ ...opts, isLocked: locked })
     }
     const apply = (cam: Camera) => {
-      // setCamera is ignored while the camera is locked, so unlock for the set.
-      const opts = editor.getCameraOptions()
-      editor.setCameraOptions({ ...opts, isLocked: false })
+      setLocked(false)
       editor.setCamera(cam, { immediate: true })
-      editor.setCameraOptions({ ...opts, isLocked: true })
+      setLocked(true)
     }
-    lock()
-    cleanups.push(channel.on('camera', (m) => m.camera && apply(m.camera)))
+
+    setLocked(following)
+    // Always track the tutor's latest camera; only apply it while following.
+    cleanups.push(
+      channel.on('camera', (m) => {
+        if (!m.camera) return
+        last = m.camera
+        if (following) apply(m.camera)
+      }),
+    )
+
+    return {
+      stop: () => cleanups.forEach((fn) => fn()),
+      setFollow: (follow: boolean) => {
+        if (follow === following) return
+        following = follow
+        if (follow) {
+          if (last) apply(last) // snap back to the tutor's view
+          else setLocked(true)
+        } else {
+          setLocked(false) // release for free roaming
+        }
+      },
+    }
   } else {
     // ---- Host: broadcast camera changes (throttled) ----
     let last: Camera | null = null
@@ -48,5 +84,6 @@ export function setupCameraSync(editor: Editor, channel: ControlChannel, isHost:
     cleanups.push(channel.on('open', () => broadcast(true)))
   }
 
-  return () => cleanups.forEach((fn) => fn())
+  // The host never "follows", so setFollow is a no-op for it.
+  return { stop: () => cleanups.forEach((fn) => fn()), setFollow: () => {} }
 }
