@@ -10,6 +10,7 @@ import { setupRightClickPan } from './rightClickPan'
 import { ControlChannel } from './controlChannel'
 import { Calculator } from './Calculator'
 import { loadLesson } from './lesson/load'
+import { exportBoardToPdf } from './exportPdf'
 
 type ClassMode = 'small' | 'large'
 
@@ -243,6 +244,32 @@ function BoardCanvas({
     channel.send({ type: 'free-reign', on })
   }
 
+  // Remind the tutor to export before they close the (ephemeral) board. Browsers
+  // only allow the generic "changes you may not be saved" prompt — that nudge is
+  // enough to send them back to click Export PDF.
+  useEffect(() => {
+    if (!isHost) return
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [isHost])
+
+  async function exportPdf() {
+    if (!editor) return
+    try {
+      setLessonStatus('Exporting PDF…')
+      const n = await exportBoardToPdf(editor)
+      setLessonStatus(`Exported ${n} page${n === 1 ? '' : 's'}`)
+      setTimeout(() => setLessonStatus(null), 2500)
+    } catch (err) {
+      setLessonStatus(err instanceof Error ? err.message : String(err))
+      setTimeout(() => setLessonStatus(null), 5000)
+    }
+  }
+
   // Large-class students start read-only and unlock only when the tutor grants
   // them write access (matched on their own userId). Trust-based, client-side.
   useEffect(() => {
@@ -353,6 +380,9 @@ function BoardCanvas({
           </button>
           <button className="dock-btn" onClick={() => setCalcOpen((v) => !v)}>
             {calcOpen ? 'Hide calculator' : '🧮 Calculator'}
+          </button>
+          <button className="dock-btn" title="Save every page to a PDF" onClick={exportPdf}>
+            ⬇ Export PDF
           </button>
         </div>
       )}
