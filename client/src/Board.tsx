@@ -5,9 +5,11 @@ import { useSync } from '@tldraw/sync'
 import { nanoid } from 'nanoid'
 import { makeAssetStore } from './assetStore'
 import { setupCameraSync } from './cameraSync'
+import { setupPageSync } from './pageSync'
 import { setupRightClickPan } from './rightClickPan'
 import { ControlChannel } from './controlChannel'
 import { Calculator } from './Calculator'
+import { loadLesson } from './lesson/load'
 
 function connectUrl(roomId: string) {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -59,6 +61,27 @@ export function Board({ roomId, isHost }: { roomId: string; isHost: boolean }) {
   const [studentsCanEdit, setStudentsCanEdit] = useState(false)
   // Latest calculator state seen on the wire, handed to a freshly opened guest panel.
   const lastCalcState = useRef<unknown>(null)
+  // Lesson upload (host only): file picker ref + a transient status message.
+  const lessonInputRef = useRef<HTMLInputElement>(null)
+  const [lessonStatus, setLessonStatus] = useState<string | null>(null)
+
+  async function onLessonFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-picking the same file later
+    if (!file || !editor) return
+    try {
+      setLessonStatus('Reading lesson…')
+      const raw = JSON.parse(await file.text())
+      const result = await loadLesson(editor, roomId, raw, (done, total) =>
+        setLessonStatus(`Rendering ${done}/${total}…`),
+      )
+      setLessonStatus(`Loaded ${result.pages} page${result.pages === 1 ? '' : 's'}`)
+      setTimeout(() => setLessonStatus(null), 2500)
+    } catch (err) {
+      setLessonStatus(`Couldn't load: ${err instanceof Error ? err.message : String(err)}`)
+      setTimeout(() => setLessonStatus(null), 5000)
+    }
+  }
 
   // One shared control channel (camera + calculator) for the lifetime of the board.
   useEffect(() => {
@@ -70,13 +93,15 @@ export function Board({ roomId, isHost }: { roomId: string; isHost: boolean }) {
     }
   }, [roomId, isHost])
 
-  // Camera follow + right-click pan once both the editor and channel exist.
+  // Camera + page follow + right-click pan once both the editor and channel exist.
   useEffect(() => {
     if (!editor || !channel) return
     const stopCamera = setupCameraSync(editor, channel, isHost)
+    const stopPage = setupPageSync(editor, channel, isHost)
     const stopPan = isHost ? setupRightClickPan(editor) : undefined
     return () => {
       stopCamera()
+      stopPage()
       stopPan?.()
     }
   }, [editor, channel, isHost])
@@ -124,7 +149,18 @@ export function Board({ roomId, isHost }: { roomId: string; isHost: boolean }) {
 
       {isHost && (
         <div className="tutor-dock">
+          {lessonStatus && <span className="lesson-status">{lessonStatus}</span>}
           <ShareControl roomId={roomId} />
+          <input
+            ref={lessonInputRef}
+            type="file"
+            accept="application/json,.json"
+            style={{ display: 'none' }}
+            onChange={onLessonFile}
+          />
+          <button className="dock-btn" onClick={() => lessonInputRef.current?.click()}>
+            📄 Load lesson
+          </button>
           <button className="dock-btn" onClick={() => setCalcOpen((v) => !v)}>
             {calcOpen ? 'Hide calculator' : '🧮 Calculator'}
           </button>

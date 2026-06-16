@@ -67,6 +67,21 @@ guest.send(JSON.stringify({ type: 'camera', camera: { x: 999, y: 999, z: 9 } }))
 await wait(200)
 check('student cannot drive the camera (ignored)', hostGotMsg === false)
 
+// 3b: page relay tutor -> student (page-follow) ------------------------------
+const pageMsg = nextMessage(guest)
+host.send(JSON.stringify({ type: 'page', pageId: 'page:lesson-page-2' }))
+const pageRelayed = await pageMsg
+check(
+  'student receives tutor page change',
+  !!pageRelayed && JSON.parse(pageRelayed).type === 'page' && JSON.parse(pageRelayed).pageId === 'page:lesson-page-2',
+)
+// student cannot drive the page
+let hostGotPage = false
+host.once('message', () => (hostGotPage = true))
+guest.send(JSON.stringify({ type: 'page', pageId: 'page:hacked' }))
+await wait(200)
+check('student cannot drive the page (ignored)', hostGotPage === false)
+
 // 4: live calculator relay tutor -> student ---------------------------------
 host.send(JSON.stringify({ type: 'calc', action: 'open' }))
 const calcOpenMsg = await nextMessage(guest)
@@ -96,6 +111,10 @@ await wait(400)
 check(
   'late student snaps to last camera on join',
   collected.some((m) => m.type === 'camera' && JSON.stringify(m.camera) === JSON.stringify(cam)),
+)
+check(
+  'late student snaps to tutor page on join',
+  collected.some((m) => m.type === 'page' && m.pageId === 'page:lesson-page-2'),
 )
 check('late student receives calculator open on join', collected.some((m) => m.type === 'calc' && m.action === 'open'))
 check(

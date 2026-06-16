@@ -19,6 +19,8 @@ export interface Room {
   controls: Set<ControlClient>
   /** The tutor's last broadcast camera, replayed to students who join late. */
   lastCamera: unknown | null
+  /** The tutor's current page id, replayed to students who join late (page-follow). */
+  lastPage: string | null
   /** Whether the tutor's live Desmos calculator is currently open for everyone. */
   calcOpen: boolean
   /** The tutor's last calculator state, replayed to students who join late. */
@@ -46,6 +48,7 @@ export function getOrCreateRoom(id: string): Room {
     assets: new Map(),
     controls: new Set(),
     lastCamera: null,
+    lastPage: null,
     calcOpen: false,
     lastCalcState: null,
     studentsCanEdit: false,

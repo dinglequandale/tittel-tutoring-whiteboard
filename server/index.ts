@@ -104,6 +104,7 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
   // view, the open calculator + its state, and the current edit-access setting.
   if (role === 'guest') {
     if (room.lastCamera) safeSend(ws, { type: 'camera', camera: room.lastCamera })
+    if (room.lastPage) safeSend(ws, { type: 'page', pageId: room.lastPage })
     safeSend(ws, { type: 'calc-access', allow: room.studentsCanEdit })
     if (room.calcOpen) {
       safeSend(ws, { type: 'calc', action: 'open' })
@@ -112,7 +113,7 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
   }
 
   ws.on('message', (data) => {
-    let msg: { type?: string; action?: string; camera?: unknown; state?: unknown; allow?: boolean }
+    let msg: { type?: string; action?: string; camera?: unknown; state?: unknown; allow?: boolean; pageId?: string }
     try {
       msg = JSON.parse(data.toString())
     } catch {
@@ -123,6 +124,9 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
       if (msg?.type === 'camera' && msg.camera) {
         room.lastCamera = msg.camera
         broadcastToGuests({ type: 'camera', camera: msg.camera })
+      } else if (msg?.type === 'page' && typeof msg.pageId === 'string') {
+        room.lastPage = msg.pageId
+        broadcastToGuests({ type: 'page', pageId: msg.pageId })
       } else if (msg?.type === 'calc') {
         if (msg.action === 'open') {
           room.calcOpen = true

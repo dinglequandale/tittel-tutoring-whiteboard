@@ -1,0 +1,55 @@
+{
+  "title": "SAT — Linear Equations (example)",
+  "defaults": { "spacing": 340, "maxWidth": 720 },
+  "pages": [
+    {
+      "label": "Warm-up",
+      "mode": "follow",
+      "blocks": [
+        { "type": "text", "kind": "heading", "content": "Warm-up", "spacingAfter": 60 },
+        { "type": "latex", "content": "1. If $3x - 7 = 11$, what is the value of $x$?" },
+        { "type": "latex", "content": "2. Line $\\ell$ passes through $(0, 4)$ and $(2, 10)$. Write its equation in the form $y = mx + b$." }
+      ]
+    },
+    {
+      "label": "Concept",
+      "mode": "follow",
+      "blocks": [
+        { "type": "text", "kind": "heading", "content": "Slope as rate of change", "spacingAfter": 40 },
+        {
+          "type": "text",
+          "content": "For two points $(x_1, y_1)$ and $(x_2, y_2)$, the slope is\n$$m = \\frac{y_2 - y_1}{x_2 - x_1}.$$\nWe'll build the line for our warm-up problem together.",
+          "spacingAfter": 420
+        }
+      ]
+    },
+    {
+      "label": "Guided practice",
+      "mode": "follow",
+      "blocks": [
+        { "type": "text", "kind": "heading", "content": "We do — work these together", "spacingAfter": 60 },
+        { "type": "latex", "content": "3. A gym charges a \\$25 sign-up fee plus \\$15 per month. Write $C(m)$ for the cost after $m$ months." },
+        { "type": "latex", "content": "4. Solve the system: $\\;\\begin{cases} y = 2x + 1 \\\\ y = -x + 7 \\end{cases}$" }
+      ]
+    },
+    {
+      "label": "Independent challenge",
+      "mode": "free",
+      "blocks": [
+        { "type": "text", "kind": "heading", "content": "You do — quietly, on your own paper", "spacingAfter": 60 },
+        { "type": "latex", "content": "5. The line $y = kx - 3$ passes through $(4, 9)$. Find $k$." },
+        { "type": "latex", "content": "6. For what value of $b$ do $y = 3x + b$ and $6x - 2y = 10$ have no solution?" }
+      ]
+    },
+    {
+      "label": "Speed round",
+      "mode": "free",
+      "blocks": [
+        { "type": "text", "kind": "heading", "content": "Speed round — ~1 min each", "spacingAfter": 40 },
+        { "type": "latex", "content": "7. $\\;2x + 5 = 17 \\Rightarrow x = \\,?$", "spacingAfter": 120 },
+        { "type": "latex", "content": "8. Slope through $(1,1)$ and $(4,7)$?", "spacingAfter": 120 },
+        { "type": "latex", "content": "9. $y$-intercept of $y = -4x + 9$?", "spacingAfter": 120 }
+      ]
+    }
+  ]
+}

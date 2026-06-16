@@ -131,6 +131,18 @@ body {
   background: var(--brand-dark);
 }
 
+.lesson-status {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink);
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.12);
+  white-space: nowrap;
+}
+
 .share-control {
   display: flex;
   align-items: center;
