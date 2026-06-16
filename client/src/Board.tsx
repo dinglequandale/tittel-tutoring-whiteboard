@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Tldraw, atom, react, useValue, type Editor } from 'tldraw'
+import { Tldraw, useValue, type Editor } from 'tldraw'
 import 'tldraw/tldraw.css'
 import { useSync } from '@tldraw/sync'
 import { nanoid } from 'nanoid'
@@ -277,22 +277,33 @@ function BoardCanvas({
   // driven by the sync layer and re-asserted on every instance change, so we
   // can't toggle it live from the client — the hand-tool pin is the dynamic,
   // trust-based equivalent.)
+  //
+  // The correction is deferred (setTimeout 0) so we never mutate the editor from
+  // inside a reactive flush / store-listener callback, which corrupts tldraw's
+  // effect scheduler.
   useEffect(() => {
     if (!editor || isHost || mode !== 'large') return
-    const canWrite = atom('student-can-write', false)
+    let canWrite = false
+    const pinIfLocked = () => {
+      if (!canWrite && editor.getCurrentToolId() !== 'hand') editor.setCurrentTool('hand')
+    }
+    const defer = () => setTimeout(pinIfLocked, 0)
+
+    defer() // lock on entry
     const off = channel.on('access', (m) => {
       if (m.userId !== userId) return
-      canWrite.set(!!m.allow)
-      if (m.allow) editor.setCurrentTool('select') // hand them a real tool
+      canWrite = !!m.allow
+      if (canWrite) editor.setCurrentTool('select') // hand them a real tool
+      else defer()
     })
-    const stopEnforce = react('pin-locked-student-to-hand', () => {
-      if (!canWrite.get() && editor.getCurrentToolId() !== 'hand') {
-        editor.setCurrentTool('hand')
-      }
+    // Re-pin if a locked student tries to switch tools (tool id is session state).
+    const unlisten = editor.store.listen(() => { if (!canWrite) defer() }, {
+      scope: 'session',
+      source: 'user',
     })
     return () => {
       off()
-      stopEnforce()
+      unlisten()
     }
   }, [editor, isHost, mode, channel])
 

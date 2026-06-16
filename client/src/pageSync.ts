@@ -45,10 +45,18 @@ export function setupPageSync(
         if (following) apply(last)
       }),
     )
+    // Mutating the editor from inside a store-listener callback re-enters
+    // tldraw's flush and corrupts its effect scheduler, so page switches driven
+    // by a listener are deferred to a fresh tick.
+    const deferApply = (id: TLPageId) =>
+      setTimeout(() => {
+        if (following && editor.getPage(id)) apply(id)
+      }, 0)
+
     // Catch a target page arriving via sync after we were told to switch to it.
     const unlisten = editor.store.listen(
       () => {
-        if (following && pending && editor.getPage(pending)) apply(pending)
+        if (following && pending && editor.getPage(pending)) deferApply(pending)
       },
       { scope: 'document', source: 'remote' },
     )
@@ -59,10 +67,7 @@ export function setupPageSync(
     // this by flipping `following` off.)
     const unlistenNav = editor.store.listen(
       () => {
-        if (!following || !last) return
-        if (editor.getCurrentPageId() !== last && editor.getPage(last)) {
-          editor.setCurrentPage(last)
-        }
+        if (following && last && editor.getCurrentPageId() !== last) deferApply(last)
       },
       { scope: 'session', source: 'user' },
     )
