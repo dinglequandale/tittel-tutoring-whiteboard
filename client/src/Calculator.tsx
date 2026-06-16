@@ -2,6 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { loadDesmos } from './desmos'
 import type { ControlChannel } from './controlChannel'
 
+// We only broadcast state changes that happen within this window after a real
+// local interaction (pointer/keyboard) on our own calculator. Desmos mutates
+// state on its own after setState (recomputed values, slider bounds, running
+// animations) and keeps firing 'change'; those have no local interaction behind
+// them, so a receiver never echoes them back — which is what breaks the
+// two-editor feedback loop, regardless of whether getState/setState is stable.
+const INTERACTION_WINDOW_MS = 1500
+
 // A floating Desmos panel.
 //  - Tutor (host): always an editor. Changes broadcast to everyone; a footer
 //    switch toggles whether students may edit too.
@@ -30,6 +38,7 @@ export function Calculator({
   const mountRef = useRef<HTMLDivElement>(null)
   const calcRef = useRef<any>(null)
   const amEditorRef = useRef(isHost)
+  const lastInteractionRef = useRef(0)
   const [error, setError] = useState<string | null>(null)
 
   const amEditor = isHost || canEdit
@@ -59,6 +68,16 @@ export function Calculator({
         })
         calcRef.current = calc
 
+        // Track genuine local interaction with this calculator. Only such
+        // changes are allowed to broadcast (see INTERACTION_WINDOW_MS).
+        const markInteraction = () => {
+          lastInteractionRef.current = performance.now()
+        }
+        const el = mountRef.current!
+        const interactionEvents = ['pointerdown', 'pointermove', 'pointerup', 'keydown', 'wheel', 'input']
+        interactionEvents.forEach((e) => el.addEventListener(e, markInteraction, true))
+        cleanups.push(() => interactionEvents.forEach((e) => el.removeEventListener(e, markInteraction, true)))
+
         const applyRemote = (state: unknown) => {
           const json = JSON.stringify(state)
           if (json === syncedJSON) return // already showing this — no disruptive setState
@@ -71,6 +90,9 @@ export function Calculator({
         const broadcast = () => {
           timer = null
           if (!amEditorRef.current) return
+          // Only emit changes driven by our own recent interaction — never the
+          // churn from applying a remote update. This is the loop breaker.
+          if (performance.now() - lastInteractionRef.current > INTERACTION_WINDOW_MS) return
           const json = JSON.stringify(calc.getState())
           if (json === syncedJSON) return // nothing genuinely new
           syncedJSON = json
