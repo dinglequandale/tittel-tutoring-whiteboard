@@ -1,5 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Tldraw, useValue, type Editor, type TLComponents } from 'tldraw'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Tldraw,
+  DefaultMainMenu,
+  DefaultMainMenuContent,
+  TldrawUiMenuGroup,
+  TldrawUiMenuItem,
+  PeopleMenu,
+  atom,
+  useEditor,
+  useValue,
+  type Atom,
+  type Editor,
+  type TLComponents,
+} from 'tldraw'
 import 'tldraw/tldraw.css'
 import { useSync } from '@tldraw/sync'
 import { nanoid } from 'nanoid'
@@ -180,6 +193,7 @@ function BoardCanvas({
   })
 
   const [editor, setEditor] = useState<Editor | null>(null)
+  const editorRef = useRef<Editor | null>(null)
   const [calcOpen, setCalcOpen] = useState(false)
   // Whether students may edit the shared calculator (host toggles; guests follow).
   const [studentsCanEdit, setStudentsCanEdit] = useState(false)
@@ -188,8 +202,11 @@ function BoardCanvas({
   // Lesson upload (host only): file picker ref + a transient status message.
   const lessonInputRef = useRef<HTMLInputElement>(null)
   const [lessonStatus, setLessonStatus] = useState<string | null>(null)
-  // Large-class write grants the tutor has handed out, keyed by student userId.
-  const [granted, setGranted] = useState<Set<string>>(() => new Set())
+  // Whether the share link has been copied (then it lives in the main menu only).
+  const [linkCopied, setLinkCopied] = useState(false)
+  // Large-class write grants, keyed by student userId. An atom so the toggles
+  // inside tldraw's people menu can read it reactively without remounting.
+  const grantedAtom = useMemo(() => atom('granted-writers', new Set<string>()), [])
   // Free reign: host toggles it; guests follow. Off = locked to the tutor.
   const [freeReign, setFreeReign] = useState(false)
   const freeReignRef = useRef(freeReign)
@@ -253,7 +270,7 @@ function BoardCanvas({
 
   // Remind the tutor to export before they close the (ephemeral) board. Browsers
   // only allow the generic "changes you may not be saved" prompt — that nudge is
-  // enough to send them back to click Export PDF.
+  // enough to send them back to the menu's Export.
   useEffect(() => {
     if (!isHost) return
     const warn = (e: BeforeUnloadEvent) => {
@@ -263,19 +280,6 @@ function BoardCanvas({
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [isHost])
-
-  async function exportPdf() {
-    if (!editor) return
-    try {
-      setLessonStatus('Exporting PDF…')
-      const n = await exportBoardToPdf(editor)
-      setLessonStatus(`Exported ${n} page${n === 1 ? '' : 's'}`)
-      setTimeout(() => setLessonStatus(null), 2500)
-    } catch (err) {
-      setLessonStatus(err instanceof Error ? err.message : String(err))
-      setTimeout(() => setLessonStatus(null), 5000)
-    }
-  }
 
   // Large-class students can't draw until the tutor grants their userId.
   useEffect(() => {
@@ -312,19 +316,6 @@ function BoardCanvas({
     editor.setCurrentTool(canWrite ? 'select' : 'hand')
   }, [canWrite, editor, isHost, isLarge])
 
-  // Hide editing UI from students per their state:
-  //  - Toolbar (draw tools + image upload): only when they may write.
-  //  - PageMenu (create/switch pages): only while roaming under free reign;
-  //    otherwise they're following the tutor and shouldn't wander.
-  // The host always keeps the full UI.
-  const components = useMemo<TLComponents>(() => {
-    if (isHost) return {}
-    const c: TLComponents = {}
-    if (!canWrite) c.Toolbar = null
-    if (!freeReign) c.PageMenu = null
-    return c
-  }, [isHost, canWrite, freeReign])
-
   // Students follow the tutor opening/closing the calculator, track its state,
   // and follow the edit-access setting.
   useEffect(() => {
@@ -346,24 +337,49 @@ function BoardCanvas({
     channel.send({ type: 'calc-access', allow })
   }
 
-  function toggleGrant(studentId: string, allow: boolean) {
-    setGranted((prev) => {
-      const next = new Set(prev)
-      if (allow) next.add(studentId)
-      else next.delete(studentId)
-      return next
-    })
-    channel.send({ type: 'access', userId: studentId, allow })
-  }
+  // ---- Stable host actions (referenced by the custom tldraw UI components) ----
+  const copyLink = useCallback(() => {
+    navigator.clipboard?.writeText(`${window.location.origin}/b/${roomId}`).catch(() => {})
+  }, [roomId])
+
+  const openLessonPicker = useCallback(() => lessonInputRef.current?.click(), [])
+
+  const exportPdf = useCallback(async () => {
+    const ed = editorRef.current
+    if (!ed) return
+    try {
+      setLessonStatus('Exporting PDF…')
+      const n = await exportBoardToPdf(ed)
+      setLessonStatus(`Exported ${n} page${n === 1 ? '' : 's'}`)
+      setTimeout(() => setLessonStatus(null), 2500)
+    } catch (err) {
+      setLessonStatus(err instanceof Error ? err.message : String(err))
+      setTimeout(() => setLessonStatus(null), 5000)
+    }
+  }, [])
+
+  const toggleGrant = useCallback(
+    (studentId: string, allow: boolean) => {
+      grantedAtom.update((prev) => {
+        const next = new Set(prev)
+        if (allow) next.add(studentId)
+        else next.delete(studentId)
+        return next
+      })
+      channel.send({ type: 'access', userId: studentId, allow })
+    },
+    [channel, grantedAtom],
+  )
 
   async function onLessonFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = '' // allow re-picking the same file later
-    if (!file || !editor) return
+    const ed = editorRef.current
+    if (!file || !ed) return
     try {
       setLessonStatus('Reading lesson…')
       const raw = JSON.parse(await file.text())
-      const result = await loadLesson(editor, roomId, raw, (done, total) =>
+      const result = await loadLesson(ed, roomId, raw, (done, total) =>
         setLessonStatus(`Rendering ${done}/${total}…`),
       )
       setLessonStatus(`Loaded ${result.pages} page${result.pages === 1 ? '' : 's'}`)
@@ -373,6 +389,69 @@ function BoardCanvas({
       setTimeout(() => setLessonStatus(null), 5000)
     }
   }
+
+  // ---- Custom tldraw UI pieces (stable identities so popovers don't remount) --
+  // Host main menu: default items plus Copy link + Export PDF.
+  const HostMainMenu = useMemo(
+    () =>
+      function HostMainMenu() {
+        return (
+          <DefaultMainMenu>
+            <TldrawUiMenuGroup id="tittel">
+              <TldrawUiMenuItem id="copy-student-link" label="Copy student link" readonlyOk onSelect={copyLink} />
+              <TldrawUiMenuItem id="export-pdf" label="Export PDF (all pages)" readonlyOk onSelect={exportPdf} />
+            </TldrawUiMenuGroup>
+            <DefaultMainMenuContent />
+          </DefaultMainMenu>
+        )
+      },
+    [copyLink, exportPdf],
+  )
+
+  // Load lesson lives in the top-left, just right of the menu/page buttons.
+  const HostHelperButtons = useMemo(
+    () =>
+      function HostHelperButtons() {
+        return (
+          <div className="tlui-helper-buttons">
+            <button className="dock-btn" onClick={openLessonPicker}>
+              📄 Load lesson
+            </button>
+          </div>
+        )
+      },
+    [openLessonPicker],
+  )
+
+  // Large-class write toggles live inside tldraw's existing people menu (top-right).
+  const HostSharePanel = useMemo(
+    () =>
+      function HostSharePanel() {
+        return (
+          <div className="tlui-share-zone" draggable={false}>
+            <PeopleMenu>
+              <WriteAccessControls grantedAtom={grantedAtom} onToggle={toggleGrant} />
+            </PeopleMenu>
+          </div>
+        )
+      },
+    [grantedAtom, toggleGrant],
+  )
+
+  // Hide editing UI from students per their state; the host gets custom pieces.
+  //  - Toolbar (draw tools + image upload): students only when they may write.
+  //  - PageMenu (create/switch pages): students only while roaming under free reign.
+  const components = useMemo<TLComponents>(() => {
+    if (isHost) {
+      const c: TLComponents = { MainMenu: HostMainMenu, HelperButtons: HostHelperButtons }
+      if (isLarge) c.SharePanel = HostSharePanel
+      return c
+    }
+    const c: TLComponents = {}
+    if (!canWrite) c.Toolbar = null
+    if (!freeReign) c.PageMenu = null
+    return c
+  }, [isHost, isLarge, canWrite, freeReign, HostMainMenu, HostHelperButtons, HostSharePanel])
 
   if (store.status === 'loading') {
     return <div className="board-status">Connecting to the board…</div>
@@ -390,29 +469,18 @@ function BoardCanvas({
     <div className="board-root">
       <Tldraw
         store={store.store}
-        onMount={setEditor}
+        onMount={(ed) => {
+          editorRef.current = ed
+          setEditor(ed)
+        }}
         components={components}
         licenseKey={import.meta.env.VITE_TLDRAW_LICENSE_KEY}
       />
 
-      {isHost && mode === 'large' && editor && (
-        <Roster editor={editor} granted={granted} onToggle={toggleGrant} />
-      )}
-
       {isHost && (
         <div className="tutor-dock">
           {lessonStatus && <span className="lesson-status">{lessonStatus}</span>}
-          <ShareControl roomId={roomId} />
-          <input
-            ref={lessonInputRef}
-            type="file"
-            accept="application/json,.json"
-            style={{ display: 'none' }}
-            onChange={onLessonFile}
-          />
-          <button className="dock-btn" onClick={() => lessonInputRef.current?.click()}>
-            📄 Load lesson
-          </button>
+          {!linkCopied && <ShareControl roomId={roomId} onCopied={() => setLinkCopied(true)} />}
           <button
             className={`dock-btn ${freeReign ? 'primary' : ''}`}
             title="Let students roam pages/zoom freely and use their own calculators"
@@ -423,9 +491,13 @@ function BoardCanvas({
           <button className="dock-btn" onClick={() => setCalcOpen((v) => !v)}>
             {calcOpen ? 'Hide calculator' : '🧮 Calculator'}
           </button>
-          <button className="dock-btn" title="Save every page to a PDF" onClick={exportPdf}>
-            ⬇ Export PDF
-          </button>
+          <input
+            ref={lessonInputRef}
+            type="file"
+            accept="application/json,.json"
+            style={{ display: 'none' }}
+            onChange={onLessonFile}
+          />
         </div>
       )}
 
@@ -458,38 +530,38 @@ function BoardCanvas({
   )
 }
 
-// Top-right roster (large classes): who's on the board, with a per-student switch
-// to grant/revoke write access. The participant list comes straight from tldraw's
-// live presence, so no extra roster broadcast is needed.
-function Roster({
-  editor,
-  granted,
+// A "Write access" section appended to tldraw's people-menu popover (top-right),
+// listing each student with a switch. The participant list comes straight from
+// tldraw's live presence, and the grant set is read reactively from an atom.
+function WriteAccessControls({
+  grantedAtom,
   onToggle,
 }: {
-  editor: Editor
-  granted: Set<string>
+  grantedAtom: Atom<Set<string>>
   onToggle: (studentId: string, allow: boolean) => void
 }) {
+  const editor = useEditor()
   const collaborators = useValue('collaborators', () => editor.getCollaborators(), [editor])
+  const granted = useValue(grantedAtom)
   const students = collaborators.filter((c) => c.userId !== userId)
+  if (students.length === 0) return null
 
   return (
-    <div className="roster-panel">
-      <div className="roster-title">On the board · {students.length}</div>
-      {students.length === 0 && <div className="roster-empty">No students yet</div>}
+    <div className="tlui-people-menu__section write-access">
+      <div className="write-access__title">Write access</div>
       {students.map((c) => {
-        const canWrite = granted.has(c.userId)
+        const can = granted.has(c.userId)
         return (
-          <div className="roster-row" key={c.userId}>
-            <span className="roster-dot" style={{ background: c.color }} />
-            <span className="roster-name">{c.userName || 'Student'}</span>
+          <div className="write-access__row" key={c.userId}>
+            <span className="write-access__dot" style={{ background: c.color }} />
+            <span className="write-access__name">{c.userName || 'Student'}</span>
             <button
               type="button"
               role="switch"
-              aria-checked={canWrite}
-              title={canWrite ? 'Can write — click to lock' : 'Locked — click to let them write'}
-              className={`calc-switch ${canWrite ? 'on' : ''}`}
-              onClick={() => onToggle(c.userId, !canWrite)}
+              aria-checked={can}
+              title={can ? 'Can write — click to lock' : 'Locked — click to let them write'}
+              className={`calc-switch ${can ? 'on' : ''}`}
+              onClick={() => onToggle(c.userId, !can)}
             >
               <span className="calc-switch-knob" />
             </button>
@@ -500,30 +572,20 @@ function Roster({
   )
 }
 
-// Compact share control: shows the link with a Copy button, then collapses to a
-// small chip once copied so it stays out of the way. Click the chip to reopen.
-function ShareControl({ roomId }: { roomId: string }) {
+// Share control in the dock: the link + a Copy button. Once copied it tucks away
+// (the main menu keeps a "Copy student link" item for re-copying).
+function ShareControl({ roomId, onCopied }: { roomId: string; onCopied: () => void }) {
   const link = `${window.location.origin}/b/${roomId}`
-  const [expanded, setExpanded] = useState(true)
   const [copied, setCopied] = useState(false)
 
   async function copy() {
     try {
       await navigator.clipboard.writeText(link)
       setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-      setExpanded(false)
+      setTimeout(onCopied, 900)
     } catch {
-      /* clipboard blocked — leave expanded so they can copy manually */
+      /* clipboard blocked — leave it up so they can copy manually */
     }
-  }
-
-  if (!expanded) {
-    return (
-      <button className="dock-btn" onClick={() => setExpanded(true)} title={link}>
-        🔗 Link
-      </button>
-    )
   }
 
   return (

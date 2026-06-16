@@ -170,50 +170,38 @@ body {
   cursor: not-allowed;
 }
 
-/* Top-right roster (large classes): participants + write-access switches. */
-.roster-panel {
-  position: fixed;
-  top: 12px;
-  right: 12px;
-  z-index: 1000;
-  width: 15rem;
-  max-height: 60vh;
-  overflow-y: auto;
-  background: white;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.7rem;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.16);
-  padding: 0.5rem 0.6rem;
+/* "Write access" section appended inside tldraw's people-menu popover. */
+.write-access {
+  border-top: 1px solid var(--tl-color-divider, #e2e8f0);
+  padding-top: 6px;
+  margin-top: 2px;
+  min-width: 12rem;
 }
 
-.roster-title {
-  font-size: 0.78rem;
+.write-access__title {
+  font-size: 0.72rem;
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
   color: var(--muted);
-  padding: 0.2rem 0.3rem 0.4rem;
+  padding: 0.15rem 0.4rem 0.35rem;
 }
 
-.roster-empty {
-  font-size: 0.8rem;
-  color: var(--muted);
-  padding: 0.2rem 0.3rem;
-}
-
-.roster-row {
+.write-access__row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.3rem;
+  padding: 0.25rem 0.4rem;
 }
 
-.roster-dot {
+.write-access__dot {
   width: 10px;
   height: 10px;
   border-radius: 50%;
   flex: 0 0 auto;
 }
 
-.roster-name {
+.write-access__name {
   flex: 1 1 auto;
   font-size: 0.85rem;
   white-space: nowrap;
