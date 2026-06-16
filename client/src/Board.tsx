@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Tldraw, useValue, type Editor } from 'tldraw'
+import { Tldraw, atom, react, useValue, type Editor } from 'tldraw'
 import 'tldraw/tldraw.css'
 import { useSync } from '@tldraw/sync'
 import { nanoid } from 'nanoid'
@@ -270,17 +270,29 @@ function BoardCanvas({
     }
   }
 
-  // Large-class students start read-only and unlock only when the tutor grants
-  // them write access (matched on their own userId). Trust-based, client-side.
+  // Large-class students can't edit the board until the tutor grants them write
+  // access (matched on their own userId). We enforce this by pinning them to the
+  // 'hand' tool — they can still pan/zoom and page-navigate (needed for free
+  // reign) but can't create/select/move shapes. (tldraw's own `isReadonly` is
+  // driven by the sync layer and re-asserted on every instance change, so we
+  // can't toggle it live from the client — the hand-tool pin is the dynamic,
+  // trust-based equivalent.)
   useEffect(() => {
     if (!editor || isHost || mode !== 'large') return
-    editor.updateInstanceState({ isReadonly: true })
+    const canWrite = atom('student-can-write', false)
     const off = channel.on('access', (m) => {
-      if (m.userId === userId) editor.updateInstanceState({ isReadonly: !m.allow })
+      if (m.userId !== userId) return
+      canWrite.set(!!m.allow)
+      if (m.allow) editor.setCurrentTool('select') // hand them a real tool
+    })
+    const stopEnforce = react('pin-locked-student-to-hand', () => {
+      if (!canWrite.get() && editor.getCurrentToolId() !== 'hand') {
+        editor.setCurrentTool('hand')
+      }
     })
     return () => {
       off()
-      editor.updateInstanceState({ isReadonly: false })
+      stopEnforce()
     }
   }, [editor, isHost, mode, channel])
 

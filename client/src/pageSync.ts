@@ -54,6 +54,20 @@ export function setupPageSync(
     )
     cleanups.push(unlisten)
 
+    // While following, a student can't wander to another page: snap any
+    // self-initiated page change back to the tutor's page. (Free reign releases
+    // this by flipping `following` off.)
+    const unlistenNav = editor.store.listen(
+      () => {
+        if (!following || !last) return
+        if (editor.getCurrentPageId() !== last && editor.getPage(last)) {
+          editor.setCurrentPage(last)
+        }
+      },
+      { scope: 'session', source: 'user' },
+    )
+    cleanups.push(unlistenNav)
+
     return {
       stop: () => cleanups.forEach((fn) => fn()),
       setFollow: (follow: boolean) => {
