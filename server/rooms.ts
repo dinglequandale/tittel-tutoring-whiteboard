@@ -27,6 +27,10 @@ export interface Room {
   lastCalcState: unknown | null
   /** Whether all students may edit the shared calculator (tutor-toggled). */
   studentsCanEdit: boolean
+  /** Class size mode. 'large' adds the name gate + default-locked write access. */
+  mode: 'small' | 'large'
+  /** In large mode, the set of student userIds the tutor has granted write access. */
+  writers: Set<string>
   closeTimer: ReturnType<typeof setTimeout> | null
 }
 
@@ -52,6 +56,8 @@ export function getOrCreateRoom(id: string): Room {
     calcOpen: false,
     lastCalcState: null,
     studentsCanEdit: false,
+    mode: 'small',
+    writers: new Set(),
     closeTimer: null,
     // Set just below; typed non-null for ergonomic access.
     socketRoom: undefined as unknown as TLSocketRoom<any, void>,
