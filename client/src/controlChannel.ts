@@ -5,10 +5,19 @@
 // socket (re)connects so the host can re-broadcast its current state.
 type Handler = (msg: any) => void
 
+// State-style messages whose latest value should be replayed to a handler that
+// subscribes after the message already arrived. The server sends these once when
+// a guest connects (e.g. the tutor's current page), which can land before the
+// feature that listens for them has mounted — so we cache the last one and
+// deliver it on subscribe. (Event-style messages like 'calc' open/close aren't
+// cached; they're handled in sequence.)
+const STICKY_TYPES = new Set(['camera', 'page', 'mode', 'free-reign', 'calc-access'])
+
 export class ControlChannel {
   private socket: WebSocket | null = null
   private disposed = false
   private handlers = new Map<string, Set<Handler>>()
+  private lastByType = new Map<string, any>()
 
   constructor(
     private readonly roomId: string,
@@ -31,7 +40,10 @@ export class ControlChannel {
     ws.onmessage = (ev) => {
       try {
         const msg = JSON.parse(typeof ev.data === 'string' ? ev.data : '')
-        if (msg && msg.type) this.emit(msg.type, msg)
+        if (msg && msg.type) {
+          if (STICKY_TYPES.has(msg.type)) this.lastByType.set(msg.type, msg)
+          this.emit(msg.type, msg)
+        }
       } catch {
         /* ignore malformed frames */
       }
@@ -55,6 +67,14 @@ export class ControlChannel {
       this.handlers.set(type, set)
     }
     set.add(handler)
+    // Replay the latest cached value for sticky state-types, so a late subscriber
+    // immediately gets the current camera/page/mode/etc. it would otherwise miss.
+    if (STICKY_TYPES.has(type) && this.lastByType.has(type)) {
+      const cached = this.lastByType.get(type)
+      queueMicrotask(() => {
+        if (!this.disposed && this.handlers.get(type)?.has(handler)) handler(cached)
+      })
+    }
     return () => {
       set!.delete(handler)
     }

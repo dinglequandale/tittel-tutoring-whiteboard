@@ -3,6 +3,7 @@ import {
   Tldraw,
   DefaultMainMenu,
   DefaultMainMenuContent,
+  DefaultMenuPanel,
   TldrawUiMenuGroup,
   TldrawUiMenuItem,
   PeopleMenu,
@@ -408,13 +409,17 @@ function BoardCanvas({
     [copyLink, exportPdf],
   )
 
-  // Load lesson lives in the top-left, just right of the menu/page buttons.
-  const HostHelperButtons = useMemo(
+  // Load lesson lives in the top-left, just right of the menu/page buttons. We
+  // wrap the default menu panel because that top-left slot stacks vertically and
+  // is pointer-events:none — so we add the button into a horizontal row beside it
+  // and opt it back into pointer events (see .tittel-menu-row in styles.css).
+  const HostMenuPanel = useMemo(
     () =>
-      function HostHelperButtons() {
+      function HostMenuPanel() {
         return (
-          <div className="tlui-helper-buttons">
-            <button className="dock-btn" onClick={openLessonPicker}>
+          <div className="tittel-menu-row">
+            <DefaultMenuPanel />
+            <button className="dock-btn tittel-load-lesson" onClick={openLessonPicker}>
               📄 Load lesson
             </button>
           </div>
@@ -443,7 +448,7 @@ function BoardCanvas({
   //  - PageMenu (create/switch pages): students only while roaming under free reign.
   const components = useMemo<TLComponents>(() => {
     if (isHost) {
-      const c: TLComponents = { MainMenu: HostMainMenu, HelperButtons: HostHelperButtons }
+      const c: TLComponents = { MainMenu: HostMainMenu, MenuPanel: HostMenuPanel }
       if (isLarge) c.SharePanel = HostSharePanel
       return c
     }
@@ -451,7 +456,7 @@ function BoardCanvas({
     if (!canWrite) c.Toolbar = null
     if (!freeReign) c.PageMenu = null
     return c
-  }, [isHost, isLarge, canWrite, freeReign, HostMainMenu, HostHelperButtons, HostSharePanel])
+  }, [isHost, isLarge, canWrite, freeReign, HostMainMenu, HostMenuPanel, HostSharePanel])
 
   if (store.status === 'loading') {
     return <div className="board-status">Connecting to the board…</div>

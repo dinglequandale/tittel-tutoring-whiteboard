@@ -170,6 +170,24 @@ body {
   cursor: not-allowed;
 }
 
+/* Host "Load lesson" button, placed in a horizontal row beside tldraw's default
+   menu/page buttons (the top-left slot stacks vertically + is pointer-events:none,
+   so we lay out a row and opt the controls back into pointer events). */
+.tittel-menu-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.tittel-menu-row > * {
+  pointer-events: all;
+}
+
+.tittel-load-lesson {
+  margin-top: 6px;
+}
+
 /* "Write access" section appended inside tldraw's people-menu popover. */
 .write-access {
   border-top: 1px solid var(--tl-color-divider, #e2e8f0);
