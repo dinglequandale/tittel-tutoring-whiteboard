@@ -103,8 +103,12 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
   // A student joining mid-session immediately snaps to the tutor's current
   // view, the open calculator + its state, and the current edit-access setting.
   if (role === 'guest') {
+    safeSend(ws, { type: 'mode', mode: room.mode })
+    for (const userId of room.writers) safeSend(ws, { type: 'access', userId, allow: true })
     if (room.lastCamera) safeSend(ws, { type: 'camera', camera: room.lastCamera })
+    if (room.lastPage) safeSend(ws, { type: 'page', pageId: room.lastPage })
     safeSend(ws, { type: 'calc-access', allow: room.studentsCanEdit })
+    safeSend(ws, { type: 'free-reign', on: room.freeReign })
     if (room.calcOpen) {
       safeSend(ws, { type: 'calc', action: 'open' })
       if (room.lastCalcState) safeSend(ws, { type: 'calc', action: 'state', state: room.lastCalcState })
@@ -112,7 +116,17 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
   }
 
   ws.on('message', (data) => {
-    let msg: { type?: string; action?: string; camera?: unknown; state?: unknown; allow?: boolean }
+    let msg: {
+      type?: string
+      action?: string
+      camera?: unknown
+      state?: unknown
+      allow?: boolean
+      on?: boolean
+      pageId?: string
+      mode?: string
+      userId?: string
+    }
     try {
       msg = JSON.parse(data.toString())
     } catch {
@@ -123,6 +137,22 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
       if (msg?.type === 'camera' && msg.camera) {
         room.lastCamera = msg.camera
         broadcastToGuests({ type: 'camera', camera: msg.camera })
+      } else if (msg?.type === 'page' && typeof msg.pageId === 'string') {
+        room.lastPage = msg.pageId
+        broadcastToGuests({ type: 'page', pageId: msg.pageId })
+      } else if (msg?.type === 'mode' && (msg.mode === 'small' || msg.mode === 'large')) {
+        room.mode = msg.mode
+        // Leaving large mode clears any grants so nothing lingers.
+        if (msg.mode === 'small') room.writers.clear()
+        broadcastToGuests({ type: 'mode', mode: room.mode })
+      } else if (msg?.type === 'access' && typeof msg.userId === 'string') {
+        // Tutor grants/revokes a single student's board write access (large mode).
+        if (msg.allow) room.writers.add(msg.userId)
+        else room.writers.delete(msg.userId)
+        broadcastToGuests({ type: 'access', userId: msg.userId, allow: !!msg.allow })
+      } else if (msg?.type === 'free-reign') {
+        room.freeReign = !!msg.on
+        broadcastToGuests({ type: 'free-reign', on: room.freeReign })
       } else if (msg?.type === 'calc') {
         if (msg.action === 'open') {
           room.calcOpen = true

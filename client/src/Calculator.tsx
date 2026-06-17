@@ -27,6 +27,7 @@ export function Calculator({
   canEdit = false,
   studentsCanEdit = false,
   onToggleAccess,
+  personal = false,
 }: {
   channel: ControlChannel
   isHost: boolean
@@ -34,14 +35,16 @@ export function Calculator({
   canEdit?: boolean
   studentsCanEdit?: boolean
   onToggleAccess?: (allow: boolean) => void
+  /** A private, non-synced scratch calculator (free reign): full edit, no relay. */
+  personal?: boolean
 }) {
   const mountRef = useRef<HTMLDivElement>(null)
   const calcRef = useRef<any>(null)
-  const amEditorRef = useRef(isHost)
+  const amEditorRef = useRef(isHost || personal)
   const lastInteractionRef = useRef(0)
   const [error, setError] = useState<string | null>(null)
 
-  const amEditor = isHost || canEdit
+  const amEditor = isHost || canEdit || personal
 
   // Reflect edit access without recreating the calculator.
   useEffect(() => {
@@ -107,24 +110,27 @@ export function Calculator({
           else if (!timer) timer = setTimeout(broadcast, 80 - elapsed)
         }
 
-        cleanups.push(channel.on('calc', (m) => m.action === 'state' && m.state && applyRemote(m.state)))
-        calc.observeEvent('change', onChange)
-        cleanups.push(() => {
-          if (timer) clearTimeout(timer)
-          calc.unobserveEvent('change')
-        })
+        // A personal scratch calculator is fully local — no relay in or out.
+        if (!personal) {
+          cleanups.push(channel.on('calc', (m) => m.action === 'state' && m.state && applyRemote(m.state)))
+          calc.observeEvent('change', onChange)
+          cleanups.push(() => {
+            if (timer) clearTimeout(timer)
+            calc.unobserveEvent('change')
+          })
 
-        if (isHost) {
-          const pushOpen = () => {
-            channel.send({ type: 'calc', action: 'open' })
-            syncedJSON = JSON.stringify(calc.getState())
-            channel.send({ type: 'calc', action: 'state', state: JSON.parse(syncedJSON) })
+          if (isHost) {
+            const pushOpen = () => {
+              channel.send({ type: 'calc', action: 'open' })
+              syncedJSON = JSON.stringify(calc.getState())
+              channel.send({ type: 'calc', action: 'state', state: JSON.parse(syncedJSON) })
+            }
+            pushOpen()
+            cleanups.push(channel.on('open', pushOpen))
+            cleanups.push(() => channel.send({ type: 'calc', action: 'close' }))
+          } else if (initialState) {
+            applyRemote(initialState)
           }
-          pushOpen()
-          cleanups.push(channel.on('open', pushOpen))
-          cleanups.push(() => channel.send({ type: 'calc', action: 'close' }))
-        } else if (initialState) {
-          applyRemote(initialState)
         }
       })
       .catch((e) => setError(e?.message ?? String(e)))
@@ -144,8 +150,10 @@ export function Calculator({
   return (
     <div className="calc-panel">
       <div className="calc-header">
-        <span className="calc-title">Desmos{!isHost && !canEdit ? ' · live' : ''}</span>
-        {!isHost && canEdit && <span className="calc-badge">you can edit</span>}
+        <span className="calc-title">
+          {personal ? 'My calculator' : `Desmos${!isHost && !canEdit ? ' · live' : ''}`}
+        </span>
+        {!isHost && canEdit && !personal && <span className="calc-badge">you can edit</span>}
       </div>
       <div className="calc-body">
         {error ? (

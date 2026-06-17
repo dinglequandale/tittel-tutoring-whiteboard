@@ -67,6 +67,21 @@ guest.send(JSON.stringify({ type: 'camera', camera: { x: 999, y: 999, z: 9 } }))
 await wait(200)
 check('student cannot drive the camera (ignored)', hostGotMsg === false)
 
+// 3b: page relay tutor -> student (page-follow) ------------------------------
+const pageMsg = nextMessage(guest)
+host.send(JSON.stringify({ type: 'page', pageId: 'page:lesson-page-2' }))
+const pageRelayed = await pageMsg
+check(
+  'student receives tutor page change',
+  !!pageRelayed && JSON.parse(pageRelayed).type === 'page' && JSON.parse(pageRelayed).pageId === 'page:lesson-page-2',
+)
+// student cannot drive the page
+let hostGotPage = false
+host.once('message', () => (hostGotPage = true))
+guest.send(JSON.stringify({ type: 'page', pageId: 'page:hacked' }))
+await wait(200)
+check('student cannot drive the page (ignored)', hostGotPage === false)
+
 // 4: live calculator relay tutor -> student ---------------------------------
 host.send(JSON.stringify({ type: 'calc', action: 'open' }))
 const calcOpenMsg = await nextMessage(guest)
@@ -96,6 +111,10 @@ await wait(400)
 check(
   'late student snaps to last camera on join',
   collected.some((m) => m.type === 'camera' && JSON.stringify(m.camera) === JSON.stringify(cam)),
+)
+check(
+  'late student snaps to tutor page on join',
+  collected.some((m) => m.type === 'page' && m.pageId === 'page:lesson-page-2'),
 )
 check('late student receives calculator open on join', collected.some((m) => m.type === 'calc' && m.action === 'open'))
 check(
@@ -145,6 +164,67 @@ const joinMsgs = []
 newGuest.on('message', (d) => joinMsgs.push(JSON.parse(d.toString())))
 await wait(300)
 check('late student receives current edit-access on join', joinMsgs.some((m) => m.type === 'calc-access' && m.allow === true))
+
+// 10: class mode relay + write-access grants (large group) -------------------
+{
+  const m = `mode-${Math.random().toString(36).slice(2, 8)}`
+  const h = await open(`${WS}/control/${m}?role=host`)
+  const g = await open(`${WS}/control/${m}?role=guest`)
+  await wait(100)
+  // tutor declares large mode
+  const modeMsg = nextMessage(g)
+  h.send(JSON.stringify({ type: 'mode', mode: 'large' }))
+  const gotMode = await modeMsg
+  check('student receives class mode', !!gotMode && JSON.parse(gotMode).type === 'mode' && JSON.parse(gotMode).mode === 'large')
+  // tutor grants a specific student write access
+  const grantMsg = nextMessage(g)
+  h.send(JSON.stringify({ type: 'access', userId: 'stu-1', allow: true }))
+  const gotGrant = await grantMsg
+  check(
+    'student receives a write-access grant',
+    !!gotGrant && JSON.parse(gotGrant).type === 'access' && JSON.parse(gotGrant).userId === 'stu-1' && JSON.parse(gotGrant).allow === true,
+  )
+  // a late joiner is told the mode + who already has write access
+  const late = await open(`${WS}/control/${m}?role=guest`)
+  const lateMsgs = []
+  late.on('message', (d) => lateMsgs.push(JSON.parse(d.toString())))
+  await wait(300)
+  check('late student receives current mode on join', lateMsgs.some((x) => x.type === 'mode' && x.mode === 'large'))
+  check('late student receives existing grants on join', lateMsgs.some((x) => x.type === 'access' && x.userId === 'stu-1' && x.allow === true))
+  // students cannot grant access to themselves (guest->host access ignored)
+  let hostGotAccess = false
+  h.once('message', () => (hostGotAccess = true))
+  g.send(JSON.stringify({ type: 'access', userId: 'stu-1', allow: true }))
+  await wait(200)
+  check('student cannot grant write access (ignored)', hostGotAccess === false)
+  for (const ws of [h, g, late]) ws.close()
+}
+
+// 11: free-reign relay + late-join replay ------------------------------------
+{
+  const r = `free-${Math.random().toString(36).slice(2, 8)}`
+  const h = await open(`${WS}/control/${r}?role=host`)
+  const g = await open(`${WS}/control/${r}?role=guest`)
+  await wait(100)
+  const frMsgs = []
+  g.on('message', (d) => frMsgs.push(JSON.parse(d.toString())))
+  h.send(JSON.stringify({ type: 'free-reign', on: true }))
+  await wait(150)
+  check('student receives free-reign on', frMsgs.some((x) => x.type === 'free-reign' && x.on === true))
+  // late joiner is told free reign is currently on
+  const late = await open(`${WS}/control/${r}?role=guest`)
+  const lateFr = []
+  late.on('message', (d) => lateFr.push(JSON.parse(d.toString())))
+  await wait(300)
+  check('late student receives current free-reign on join', lateFr.some((x) => x.type === 'free-reign' && x.on === true))
+  // student cannot drive free reign
+  let hostGotFr = false
+  h.once('message', () => (hostGotFr = true))
+  g.send(JSON.stringify({ type: 'free-reign', on: false }))
+  await wait(200)
+  check('student cannot drive free reign (ignored)', hostGotFr === false)
+  for (const ws of [h, g, late]) ws.close()
+}
 
 // 5: /connect sync socket accepts upgrade and stays open ----------------------
 const sync = await open(`${WS}/connect/${ROOM}?sessionId=sess-1`)

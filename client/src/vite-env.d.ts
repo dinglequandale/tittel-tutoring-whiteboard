@@ -10,3 +10,16 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+// KaTeX's auto-render contrib extension ships no types of its own.
+declare module 'katex/dist/contrib/auto-render' {
+  export interface RenderMathInElementOptions {
+    delimiters?: Array<{ left: string; right: string; display: boolean }>
+    throwOnError?: boolean
+    errorColor?: string
+  }
+  export default function renderMathInElement(
+    el: HTMLElement,
+    options?: RenderMathInElementOptions,
+  ): void
+}
