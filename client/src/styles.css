@@ -118,6 +118,60 @@ body {
   line-height: 1.4;
 }
 
+/* Optional fixed-class-URL field on the landing page. */
+.custom-name {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  max-width: 26rem;
+}
+
+.custom-name label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.custom-name-row {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  border: 2px solid #e2e8f0;
+  border-radius: 0.7rem;
+  overflow: hidden;
+  background: white;
+}
+
+.custom-name-row:focus-within {
+  border-color: var(--brand);
+}
+
+.custom-name-prefix {
+  display: flex;
+  align-items: center;
+  padding: 0 0.6rem;
+  background: #f1f5f9;
+  color: var(--muted);
+  font-size: 0.95rem;
+  border-right: 2px solid #e2e8f0;
+}
+
+.custom-name-row input {
+  flex: 1;
+  border: none;
+  outline: none;
+  padding: 0.6rem 0.7rem;
+  font-size: 0.95rem;
+}
+
+.custom-name-hint {
+  font-size: 0.78rem;
+  color: var(--muted);
+  min-height: 1.1rem;
+}
+
 /* Name gate for large-class students. */
 .name-gate {
   position: fixed;
