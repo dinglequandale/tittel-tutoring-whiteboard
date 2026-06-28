@@ -25,6 +25,8 @@ export interface Room {
   calcOpen: boolean
   /** The tutor's last calculator state, replayed to students who join late. */
   lastCalcState: unknown | null
+  /** The tutor's last calculator position/size, replayed to students who join late. */
+  lastCalcGeom: unknown | null
   /** Whether all students may edit the shared calculator (tutor-toggled). */
   studentsCanEdit: boolean
   /** Class size mode. 'large' adds the name gate + default-locked write access. */
@@ -57,6 +59,7 @@ export function getOrCreateRoom(id: string): Room {
     lastPage: null,
     calcOpen: false,
     lastCalcState: null,
+    lastCalcGeom: null,
     studentsCanEdit: false,
     mode: 'small',
     writers: new Set(),

@@ -400,6 +400,13 @@ body {
   flex: 0 0 auto;
 }
 
+/* When the panel is movable, its header is the drag grip. */
+.calc-header.draggable {
+  cursor: move;
+  user-select: none;
+  touch-action: none;
+}
+
 .calc-title {
   font-size: 0.82rem;
   font-weight: 700;

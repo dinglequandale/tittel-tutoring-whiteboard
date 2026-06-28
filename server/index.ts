@@ -112,6 +112,7 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
     if (room.calcOpen) {
       safeSend(ws, { type: 'calc', action: 'open' })
       if (room.lastCalcState) safeSend(ws, { type: 'calc', action: 'state', state: room.lastCalcState })
+      if (room.lastCalcGeom) safeSend(ws, { type: 'calc', action: 'geom', geom: room.lastCalcGeom })
     }
   }
 
@@ -121,6 +122,7 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
       action?: string
       camera?: unknown
       state?: unknown
+      geom?: unknown
       allow?: boolean
       on?: boolean
       pageId?: string
@@ -163,6 +165,10 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
         } else if (msg.action === 'state') {
           room.lastCalcState = msg.state
           broadcastToOthers(msg)
+        } else if (msg.action === 'geom' && msg.geom) {
+          // Tutor moved/resized the shared calculator; mirror it to students.
+          room.lastCalcGeom = msg.geom
+          broadcastToGuests({ type: 'calc', action: 'geom', geom: msg.geom })
         }
       } else if (msg?.type === 'calc-access') {
         // Tutor flips whether all students may edit the shared calculator.

@@ -200,6 +200,8 @@ function BoardCanvas({
   const [studentsCanEdit, setStudentsCanEdit] = useState(false)
   // Latest calculator state seen on the wire, handed to a freshly opened guest panel.
   const lastCalcState = useRef<unknown>(null)
+  // Latest calculator position/size seen on the wire, handed to a freshly opened guest panel.
+  const lastCalcGeom = useRef<unknown>(null)
   // Lesson upload (host only): file picker ref + a transient status message.
   const lessonInputRef = useRef<HTMLInputElement>(null)
   const [lessonStatus, setLessonStatus] = useState<string | null>(null)
@@ -325,6 +327,7 @@ function BoardCanvas({
       if (m.action === 'open') setCalcOpen(true)
       else if (m.action === 'close') setCalcOpen(false)
       else if (m.action === 'state') lastCalcState.current = m.state
+      else if (m.action === 'geom') lastCalcGeom.current = m.geom
     })
   }, [channel, isHost])
 
@@ -521,6 +524,7 @@ function BoardCanvas({
           channel={channel}
           isHost={isHost}
           initialState={lastCalcState.current}
+          initialGeom={lastCalcGeom.current}
           canEdit={!isHost && studentsCanEdit}
           studentsCanEdit={studentsCanEdit}
           onToggleAccess={toggleAccess}

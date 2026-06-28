@@ -1,6 +1,31 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { loadDesmos } from './desmos'
 import type { ControlChannel } from './controlChannel'
+
+// The floating panel's position/size, in CSS pixels (top-left anchored).
+type Geom = { x: number; y: number; w: number; h: number }
+
+// Default parking spot: bottom-right above the dock, matching the original CSS.
+function defaultGeom(): Geom {
+  const w = Math.min(440, window.innerWidth * 0.92)
+  const h = Math.min(520, window.innerHeight - 120)
+  return {
+    x: Math.max(12, window.innerWidth - w - 12),
+    y: Math.max(12, window.innerHeight - h - 60),
+    w,
+    h,
+  }
+}
+
+// Keep at least a sliver on-screen so a panel can always be grabbed back.
+function clampPos(g: Geom): Geom {
+  const margin = 40
+  return {
+    ...g,
+    x: Math.min(Math.max(g.x, margin - g.w), window.innerWidth - margin),
+    y: Math.min(Math.max(g.y, 0), window.innerHeight - margin),
+  }
+}
 
 // We only broadcast state changes that happen within this window after a real
 // local interaction (pointer/keyboard) on our own calculator. Desmos mutates
@@ -24,6 +49,7 @@ export function Calculator({
   channel,
   isHost,
   initialState,
+  initialGeom,
   canEdit = false,
   studentsCanEdit = false,
   onToggleAccess,
@@ -32,6 +58,8 @@ export function Calculator({
   channel: ControlChannel
   isHost: boolean
   initialState?: unknown
+  /** The shared panel's last-known position/size, for a late-joining student. */
+  initialGeom?: unknown
   canEdit?: boolean
   studentsCanEdit?: boolean
   onToggleAccess?: (allow: boolean) => void
@@ -39,12 +67,72 @@ export function Calculator({
   personal?: boolean
 }) {
   const mountRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const calcRef = useRef<any>(null)
   const amEditorRef = useRef(isHost || personal)
   const lastInteractionRef = useRef(0)
   const [error, setError] = useState<string | null>(null)
 
   const amEditor = isHost || canEdit || personal
+
+  // Who may move/resize this panel: the tutor (drives everyone) or the owner of a
+  // private free-reign calculator (local only). A following student mirrors only.
+  const geomEditable = isHost || personal
+  const [geom, setGeom] = useState<Geom>(() => (initialGeom as Geom) ?? defaultGeom())
+  const geomRef = useRef(geom)
+  geomRef.current = geom
+
+  // Tutor broadcasts position/size so students' shared panel tracks it. A private
+  // free-reign calculator stays local; a following student only receives.
+  useEffect(() => {
+    if (isHost && !personal) channel.send({ type: 'calc', action: 'geom', geom })
+  }, [geom, isHost, personal, channel])
+
+  // Following student: mirror the tutor's moves/resizes of the shared panel.
+  useEffect(() => {
+    if (isHost || personal) return
+    return channel.on('calc', (m) => {
+      if (m.action === 'geom' && m.geom) setGeom(m.geom as Geom)
+    })
+  }, [channel, isHost, personal])
+
+  // Capture native resize-handle drags (CSS `resize: both`) back into geom so the
+  // new size is broadcast. border-box sizing makes offsetWidth equal the width we
+  // set, so this can't drift or loop.
+  useEffect(() => {
+    if (!geomEditable) return
+    const el = panelRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      const w = el.offsetWidth
+      const h = el.offsetHeight
+      const g = geomRef.current
+      if (w !== g.w || h !== g.h) setGeom({ ...g, w, h })
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [geomEditable])
+
+  // Drag the panel by its header. Pointer capture keeps the drag smooth even when
+  // the cursor passes over the calculator's own surface.
+  const startDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!geomEditable || e.button !== 0) return
+    e.preventDefault()
+    const el = e.currentTarget
+    el.setPointerCapture(e.pointerId)
+    const startX = e.clientX
+    const startY = e.clientY
+    const base = geomRef.current
+    const onMove = (ev: PointerEvent) =>
+      setGeom(clampPos({ ...base, x: base.x + (ev.clientX - startX), y: base.y + (ev.clientY - startY) }))
+    const onUp = () => {
+      el.releasePointerCapture?.(e.pointerId)
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerup', onUp)
+    }
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerup', onUp)
+  }
 
   // Reflect edit access without recreating the calculator.
   useEffect(() => {
@@ -124,6 +212,9 @@ export function Calculator({
               channel.send({ type: 'calc', action: 'open' })
               syncedJSON = JSON.stringify(calc.getState())
               channel.send({ type: 'calc', action: 'state', state: JSON.parse(syncedJSON) })
+              // Re-assert position/size so students sync even if the first geom
+              // broadcast raced the socket opening (or after a reconnect).
+              channel.send({ type: 'calc', action: 'geom', geom: geomRef.current })
             }
             pushOpen()
             cleanups.push(channel.on('open', pushOpen))
@@ -148,8 +239,23 @@ export function Calculator({
   }, [channel, isHost])
 
   return (
-    <div className="calc-panel">
-      <div className="calc-header">
+    <div
+      ref={panelRef}
+      className="calc-panel"
+      style={{
+        left: geom.x,
+        top: geom.y,
+        width: geom.w,
+        height: geom.h,
+        right: 'auto',
+        bottom: 'auto',
+        resize: geomEditable ? 'both' : 'none',
+      }}
+    >
+      <div
+        className={`calc-header${geomEditable ? ' draggable' : ''}`}
+        onPointerDown={geomEditable ? startDrag : undefined}
+      >
         <span className="calc-title">
           {personal ? 'My calculator' : `Desmos${!isHost && !canEdit ? ' · live' : ''}`}
         </span>

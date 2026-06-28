@@ -124,6 +124,33 @@ check(
   ),
 )
 
+// 5b: tutor moves/resizes the calculator; students mirror it -----------------
+const geomMsg = nextMessage(guest)
+const geom = { x: 100, y: 80, w: 500, h: 600 }
+host.send(JSON.stringify({ type: 'calc', action: 'geom', geom }))
+const gotGeom = await geomMsg
+check(
+  'student receives calculator geometry',
+  !!gotGeom && JSON.parse(gotGeom).action === 'geom' && JSON.parse(gotGeom).geom?.w === 500,
+)
+// a student cannot drive the shared geometry
+const beforeGeom = collected.length
+guest.send(JSON.stringify({ type: 'calc', action: 'geom', geom: { x: 0, y: 0, w: 1, h: 1 } }))
+await wait(150)
+check(
+  'student cannot drive calculator geometry (ignored)',
+  !collected.slice(beforeGeom).some((m) => m.action === 'geom' && m.geom?.w === 1),
+)
+// a late student snaps to the last geometry on join
+const geomGuest = await open(`${WS}/control/${ROOM}?role=guest`)
+const geomJoin = []
+geomGuest.on('message', (d) => geomJoin.push(JSON.parse(d.toString())))
+await wait(300)
+check(
+  'late student receives calculator geometry on join',
+  geomJoin.some((m) => m.type === 'calc' && m.action === 'geom' && m.geom?.h === 600),
+)
+
 // 6: global edit access toggle (all students) -------------------------------
 const hostInbox = []
 host.on('message', (d) => hostInbox.push(JSON.parse(d.toString())))
