@@ -23,6 +23,7 @@ import { setupPageSync } from './pageSync'
 import { setupRightClickPan } from './rightClickPan'
 import { ControlChannel } from './controlChannel'
 import { Calculator } from './Calculator'
+import { Timer, type TimerWireState } from './Timer'
 import { loadLesson } from './lesson/load'
 import { exportBoardToPdf } from './exportPdf'
 
@@ -216,6 +217,10 @@ function BoardCanvas({
   freeReignRef.current = freeReign
   // Guest's private scratch calculator (only while free reign is on).
   const [personalCalcOpen, setPersonalCalcOpen] = useState(false)
+  // Timer widget: host toggles visibility; students follow.
+  const [timerOpen, setTimerOpen] = useState(false)
+  const lastTimerState = useRef<TimerWireState | null>(null)
+  const lastTimerPos = useRef<{ x: number; y: number } | null>(null)
   // Live-toggleable follow controllers for camera + page.
   const cameraCtl = useRef<FollowController | null>(null)
   const pageCtl = useRef<FollowController | null>(null)
@@ -336,9 +341,25 @@ function BoardCanvas({
     return channel.on('calc-access', (m) => setStudentsCanEdit(!!m.allow))
   }, [channel, isHost])
 
+  // Students follow the tutor's timer visibility and cache its state for late mounts.
+  useEffect(() => {
+    if (isHost) return
+    return channel.on('timer', (m) => {
+      if (m.action === 'show') setTimerOpen(true)
+      else if (m.action === 'hide') setTimerOpen(false)
+      else if (m.action === 'state') lastTimerState.current = m as TimerWireState
+      else if (m.action === 'geom' && m.geom) lastTimerPos.current = m.geom
+    })
+  }, [channel, isHost])
+
   function toggleAccess(allow: boolean) {
     setStudentsCanEdit(allow)
     channel.send({ type: 'calc-access', allow })
+  }
+
+  function toggleTimer(open: boolean) {
+    setTimerOpen(open)
+    channel.send({ type: 'timer', action: open ? 'show' : 'hide' })
   }
 
   // ---- Stable host actions (referenced by the custom tldraw UI components) ----
@@ -496,6 +517,9 @@ function BoardCanvas({
           >
             {freeReign ? '🔓 Free reign: On' : '🔒 Free reign: Off'}
           </button>
+          <button className="dock-btn" onClick={() => toggleTimer(!timerOpen)}>
+            {timerOpen ? 'Hide timer' : '⏱ Timer'}
+          </button>
           <button className="dock-btn" onClick={() => setCalcOpen((v) => !v)}>
             {calcOpen ? 'Hide calculator' : '🧮 Calculator'}
           </button>
@@ -516,6 +540,17 @@ function BoardCanvas({
             {personalCalcOpen ? 'Hide calculator' : '🧮 My calculator'}
           </button>
         </div>
+      )}
+
+      {/* Timer widget: host always when open; students follow. */}
+      {timerOpen && (
+        <Timer
+          channel={channel}
+          isHost={isHost}
+          initialState={isHost ? null : lastTimerState.current}
+          initialPos={isHost ? null : lastTimerPos.current}
+          onHide={() => toggleTimer(false)}
+        />
       )}
 
       {/* Shared (tutor-driven) calculator: host always; students only when following. */}

@@ -35,6 +35,12 @@ export interface Room {
   writers: Set<string>
   /** Free reign: when on, students roam pages/zoom freely and use personal calcs. */
   freeReign: boolean
+  /** Whether the timer widget is currently visible to students. */
+  timerVisible: boolean
+  /** The tutor's last broadcast timer state, replayed to students who join late. */
+  lastTimerState: { remainingMs: number; sentAt: number; running: boolean } | null
+  /** The tutor's last timer position, replayed to students who join late. */
+  lastTimerPos: { x: number; y: number } | null
   closeTimer: ReturnType<typeof setTimeout> | null
 }
 
@@ -64,6 +70,9 @@ export function getOrCreateRoom(id: string): Room {
     mode: 'small',
     writers: new Set(),
     freeReign: false,
+    timerVisible: false,
+    lastTimerState: null,
+    lastTimerPos: null,
     closeTimer: null,
     // Set just below; typed non-null for ergonomic access.
     socketRoom: undefined as unknown as TLSocketRoom<any, void>,

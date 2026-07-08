@@ -114,6 +114,11 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
       if (room.lastCalcState) safeSend(ws, { type: 'calc', action: 'state', state: room.lastCalcState })
       if (room.lastCalcGeom) safeSend(ws, { type: 'calc', action: 'geom', geom: room.lastCalcGeom })
     }
+    if (room.timerVisible) {
+      safeSend(ws, { type: 'timer', action: 'show' })
+      if (room.lastTimerState) safeSend(ws, { type: 'timer', action: 'state', ...room.lastTimerState })
+      if (room.lastTimerPos) safeSend(ws, { type: 'timer', action: 'geom', geom: room.lastTimerPos })
+    }
   }
 
   ws.on('message', (data) => {
@@ -128,6 +133,9 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
       pageId?: string
       mode?: string
       userId?: string
+      remainingMs?: number
+      sentAt?: number
+      running?: boolean
     }
     try {
       msg = JSON.parse(data.toString())
@@ -174,6 +182,20 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
         // Tutor flips whether all students may edit the shared calculator.
         room.studentsCanEdit = !!msg.allow
         broadcastToGuests({ type: 'calc-access', allow: room.studentsCanEdit })
+      } else if (msg?.type === 'timer') {
+        if (msg.action === 'show') {
+          room.timerVisible = true
+          broadcastToGuests({ type: 'timer', action: 'show' })
+        } else if (msg.action === 'hide') {
+          room.timerVisible = false
+          broadcastToGuests({ type: 'timer', action: 'hide' })
+        } else if (msg.action === 'state' && typeof msg.remainingMs === 'number') {
+          room.lastTimerState = { remainingMs: msg.remainingMs, sentAt: msg.sentAt as number, running: !!msg.running }
+          broadcastToGuests({ type: 'timer', action: 'state', ...room.lastTimerState })
+        } else if (msg.action === 'geom' && msg.geom) {
+          room.lastTimerPos = msg.geom as { x: number; y: number }
+          broadcastToGuests({ type: 'timer', action: 'geom', geom: room.lastTimerPos })
+        }
       }
     } else if (
       msg?.type === 'calc' &&
