@@ -85,8 +85,11 @@ export function makeAnswerOverlay(opts: {
   userId: string
   displayName: string
   isHost: boolean
+  /** qid -> canonical correct answer. HOST ONLY: this map is empty for guests and
+      must never be rendered, sent, or logged when `isHost` is false. */
+  answerKeys?: Record<string, string>
 }): ComponentType {
-  const { channel, roomId, userId, displayName, isHost } = opts
+  const { channel, roomId, userId, displayName, isHost, answerKeys } = opts
 
   return function AnswerOverlay() {
     const editor = useEditor()
@@ -153,7 +156,17 @@ export function makeAnswerOverlay(opts: {
     }
 
     useEffect(() => {
-      return channel.on('quiz-open', (msg: QuizOpenMsg) => setOpenQids(new Set(msg.qids)))
+      return channel.on('quiz-open', (msg: QuizOpenMsg) => {
+        const next = new Set(msg.qids)
+        // A qid that stops being open is dropped from `seenRef` too: otherwise
+        // closing a question and re-opening it for a second attempt would never
+        // re-report "seen" (it's already in the set from the first open), and the
+        // re-run would be timed from the FIRST open instead of the new one.
+        for (const qid of seenRef.current) {
+          if (!next.has(qid)) seenRef.current.delete(qid)
+        }
+        setOpenQids(next)
+      })
     }, [])
 
     /** Host only: flip a single question open/closed, sending the whole new set. */
@@ -181,7 +194,11 @@ export function makeAnswerOverlay(opts: {
       qids.forEach((id) => seenRef.current.add(id))
       const msg: QuizSeenMsg = { type: 'quiz-seen', userId, qids }
       channel.send(msg)
-    }, [questions])
+      // `openQids` is a dependency (not just `questions`): opening a question
+      // changes `openQids`, not `questions`, so without this the effect would
+      // never re-run when the tutor opens a question and no `quiz-seen` would
+      // ever be sent for it.
+    }, [questions, openQids])
 
     // Per-question correctness feedback. `correct` is absent unless the
     // question is immediate-feedback or already revealed — never infer it.
@@ -263,6 +280,10 @@ export function makeAnswerOverlay(opts: {
 
           // The tutor doesn't answer; they decide when answering opens.
           if (isHost) {
+            // HOST ONLY: `answerKeys` is empty for guests, and this whole branch
+            // never runs for them, so the key can't leak out through it. Shown as
+            // a small muted annotation, not a control — never sent anywhere.
+            const key = answerKeys?.[q.id]
             return (
               <div key={shapeId} className="qa-box qa-gate" style={boxStyle} {...shield}>
                 <button
@@ -272,6 +293,7 @@ export function makeAnswerOverlay(opts: {
                 >
                   {isOpen ? '■ Close answering' : '▶ Open answering'}
                 </button>
+                {key !== undefined && <span className="qa-key">{key}</span>}
               </div>
             )
           }

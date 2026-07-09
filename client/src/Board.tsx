@@ -228,8 +228,15 @@ function BoardCanvas({
   // (so a freshly opened panel starts populated), and the answer keys from the
   // loaded lesson — kept so we can re-upload them if the control socket reconnects.
   const [statsOpen, setStatsOpen] = useState(false)
-  const lastStats = useRef<QuizStats | null>(null)
+  // A state (not a ref) so the "everyone answered" indicator below can react to
+  // every push, not just re-renders triggered for other reasons.
+  const [lastStats, setLastStats] = useState<QuizStats | null>(null)
   const lessonKeys = useRef<QuestionKey[]>([])
+  // Host-only: qid -> canonical correct answer, from the loaded lesson's keys, so
+  // the on-canvas overlay can show the tutor a subtle answer chip per question. A
+  // guest never loads a lesson file, but we still guard on `isHost` when setting
+  // this (see onLessonFile) so it can never be populated in a guest session.
+  const [answerKeys, setAnswerKeys] = useState<Record<string, string>>({})
   // Questions currently accepting answers (server-authoritative, echoed to everyone).
   // Any question being open means "practice mode": students stay pinned to the
   // tutor's page and camera, but get their own calculator — the calculator half of
@@ -309,7 +316,7 @@ function BoardCanvas({
   useEffect(() => {
     if (!isHost) return
     return channel.on('quiz-stats', (m) => {
-      lastStats.current = m.stats as QuizStats
+      setLastStats(m.stats as QuizStats)
     })
   }, [channel, isHost])
 
@@ -453,6 +460,15 @@ function BoardCanvas({
       // Answer keys go straight to the server and never touch the synced document.
       lessonKeys.current = result.keys
       channel.send({ type: 'quiz-key', questions: result.keys })
+      // Host-only: also keep a qid -> key map locally so the on-canvas overlay can
+      // show the tutor a subtle answer chip. Guarded explicitly on `isHost` even
+      // though a guest never reaches this handler (no lesson picker on their UI) —
+      // this map must never be populated in a guest session.
+      if (isHost) {
+        const keyMap: Record<string, string> = {}
+        for (const k of result.keys) keyMap[k.id] = k.key
+        setAnswerKeys(keyMap)
+      }
       const nq = result.keys.length
       setLessonStatus(
         `Loaded ${result.pages} page${result.pages === 1 ? '' : 's'}` +
@@ -521,9 +537,15 @@ function BoardCanvas({
   // control for the tutor. Built once per identity — tldraw remounts the slot
   // whenever this component's identity changes, which would drop whatever a
   // student was mid-way through typing.
+  // `answerKeys` is included in the deps: once a lesson loads, the map's identity
+  // changes and tldraw remounts this slot. That's a one-time remount (a host
+  // loads a lesson once per class), guests never trigger it (their map is always
+  // `{}` and never changes identity), and the only overlay state that matters
+  // across a remount is the open/close gate set, which the server re-echoes via
+  // `quiz-open` regardless — so nothing is lost.
   const AnswerOverlay = useMemo(
-    () => makeAnswerOverlay({ channel, roomId, userId, displayName, isHost }),
-    [isHost, channel, roomId, displayName],
+    () => makeAnswerOverlay({ channel, roomId, userId, displayName, isHost, answerKeys }),
+    [isHost, channel, roomId, displayName, answerKeys],
   )
 
   // A student drives their own calculator whenever they're working independently:
@@ -551,6 +573,21 @@ function BoardCanvas({
     [editor],
   )
   const anyOpenOnPage = pageQids.some((id) => openQids.has(id))
+
+  // "Everyone's answered everything open" — the tutor's cue that it's safe to
+  // move on. Requires an actual class present, at least one open question, and
+  // every open qid's answered count at/above the live roster. `>=` rather than
+  // `===`: `answered` counts distinct submitting userIds, and a student who
+  // reconnects with a fresh userId (or who answered then left) can push a
+  // question's count above the current roster size. `===` would flicker the
+  // indicator off in that case, which is worse than the rare over-count.
+  const allAnswered =
+    rosterSize > 0 &&
+    openQids.size > 0 &&
+    [...openQids].every((qid) => {
+      const q = lastStats?.questions.find((qq) => qq.qid === qid)
+      return (q?.answered ?? 0) >= rosterSize
+    })
 
   /** Open every question on this page, or — if any is open — close answering entirely. */
   function togglePageAnswering() {
@@ -625,6 +662,7 @@ function BoardCanvas({
           <button className="dock-btn" onClick={() => setStatsOpen((v) => !v)}>
             {statsOpen ? 'Hide answers' : '📊 Answers'}
           </button>
+          {allAnswered && <span className="qs-all-answered-pill">✓ All answered</span>}
           <button className="dock-btn" onClick={() => toggleTimer(!timerOpen)}>
             {timerOpen ? 'Hide timer' : '⏱ Timer'}
           </button>
@@ -655,8 +693,10 @@ function BoardCanvas({
       {isHost && statsOpen && (
         <StatsPanel
           channel={channel}
-          initialStats={lastStats.current}
+          initialStats={lastStats}
           rosterSize={rosterSize}
+          openQids={openQids}
+          allAnswered={allAnswered}
           onHide={() => setStatsOpen(false)}
         />
       )}

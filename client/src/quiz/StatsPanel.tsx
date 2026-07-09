@@ -45,12 +45,21 @@ export function StatsPanel({
   initialStats,
   onHide,
   rosterSize,
+  openQids,
+  allAnswered,
 }: {
   channel: ControlChannel
   initialStats?: QuizStats | null
   onHide: () => void
   /** Class roster size (from tldraw presence), so "answered" can show a denominator. */
   rosterSize?: number
+  /** Currently-open (assigned) question ids, from Board's `quiz-open` state — used
+   *  to mark live rows and to know which questions count toward `allAnswered`. */
+  openQids?: Set<string>
+  /** True when every open question has been answered by every student in the
+   *  roster. Computed in Board.tsx (single source of truth, shared with the dock
+   *  pill) so this panel doesn't duplicate that definition. */
+  allAnswered?: boolean
 }): JSX.Element {
   const [pos, setPos] = useState<Pos>(() => clampPos(defaultPos()))
   const posRef = useRef(pos)
@@ -130,6 +139,10 @@ export function StatsPanel({
         </button>
       </div>
 
+      {allAnswered && (
+        <div className="qs-all-answered-banner">✓ All students have answered every open question</div>
+      )}
+
       <div className="qs-body">
         {!hasQuestions ? (
           <div className="qs-empty">No lesson questions loaded</div>
@@ -140,6 +153,7 @@ export function StatsPanel({
                 key={q.qid}
                 q={q}
                 rosterSize={rosterSize}
+                isOpen={!!openQids?.has(q.qid)}
                 expanded={expanded.has(q.qid)}
                 onToggle={() => toggle(q.qid)}
               />
@@ -170,22 +184,27 @@ export function StatsPanel({
 function QuestionRow({
   q,
   rosterSize,
+  isOpen,
   expanded,
   onToggle,
 }: {
   q: QuestionStats
   rosterSize?: number
+  /** Whether this question is currently open (accepting answers) — drives the
+   *  row's "live" marker. */
+  isOpen: boolean
   expanded: boolean
   onToggle: () => void
 }) {
   const answeredLabel =
     rosterSize != null && rosterSize > 0 ? `${q.answered}/${rosterSize}` : `${q.answered}`
+  const rowComplete = rosterSize != null && rosterSize > 0 && q.answered >= rosterSize
   const firstPct = fmtPct(q.firstCorrect, q.answered)
   const latestPct = fmtPct(q.latestCorrect, q.answered)
   const barPct = q.answered > 0 ? Math.round((q.firstCorrect / q.answered) * 100) : 0
 
   return (
-    <div className="qs-row">
+    <div className={`qs-row${isOpen ? ' qs-row-open' : ''}`}>
       <button
         type="button"
         className="qs-row-header"
@@ -194,7 +213,7 @@ function QuestionRow({
       >
         <span className={`qs-chevron${expanded ? ' open' : ''}`}>▸</span>
         <span className="qs-qid">{formatQid(q.qid)}</span>
-        <span className="qs-answered" title="Answered">
+        <span className={`qs-answered${rowComplete ? ' qs-answered-complete' : ''}`} title="Answered">
           {answeredLabel}
         </span>
         <span className="qs-bar-track">

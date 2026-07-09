@@ -57,6 +57,10 @@ export interface Room {
   quizRevealed: boolean
   /** qids currently accepting answers. Gates both `quiz-answer` and `quiz-seen`. */
   quizOpen: Set<string>
+  /** qid -> ms epoch the tutor most recently opened it. Server-side fallback
+   *  baseline for `elapsedMs` when a student's own `quiz-seen` never arrives
+   *  (dropped frame, rate-limited, etc.) — see the `quiz-answer` handler. */
+  quizOpenedAt: Map<string, number>
   closeTimer: ReturnType<typeof setTimeout> | null
 }
 
@@ -94,6 +98,7 @@ export function getOrCreateRoom(id: string): Room {
     quizSubs: new Map(),
     quizRevealed: false,
     quizOpen: new Set(),
+    quizOpenedAt: new Map(),
     closeTimer: null,
     // Set just below; typed non-null for ergonomic access.
     socketRoom: undefined as unknown as TLSocketRoom<any, void>,

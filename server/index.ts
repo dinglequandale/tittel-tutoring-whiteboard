@@ -283,6 +283,9 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
         for (const qid of Array.from(room.quizOpen)) {
           if (!nextKey.has(qid)) room.quizOpen.delete(qid)
         }
+        for (const qid of Array.from(room.quizOpenedAt.keys())) {
+          if (!nextKey.has(qid)) room.quizOpenedAt.delete(qid)
+        }
         pushQuizStats()
       } else if (msg?.type === 'quiz-reveal') {
         room.quizRevealed = true
@@ -294,6 +297,12 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
         room.quizSeen.clear()
         room.quizSubs.clear()
         room.quizRevealed = false
+        // A reset is a re-run: restamp openedAt for every qid still open, so a
+        // fresh answer is timed from "now", not from the original open. Clients
+        // also clear their local `seenRef` on quiz-reset, so they'll re-report
+        // quiz-seen and this fallback baseline typically gets superseded anyway.
+        const now = Date.now()
+        for (const qid of room.quizOpen) room.quizOpenedAt.set(qid, now)
         // quiz-reset clears submissions so a question can be re-run; it does NOT
         // touch quizOpen — that would silently close questions the tutor still
         // has open.
@@ -307,6 +316,22 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
         const nextOpen = new Set<string>()
         for (const qid of (msg.qids as unknown[]).slice(0, MAX_OPEN_QIDS)) {
           if (typeof qid === 'string' && room.quizKey.has(qid)) nextOpen.add(qid)
+        }
+        // Compute the closed->open transition BEFORE overwriting `quizOpen`. A
+        // qid newly opened is a fresh run: stamp `quizOpenedAt` and drop any
+        // stale `quizSeen` so timing restarts cleanly instead of measuring from
+        // a previous run. A qid that stays open is left alone (don't restart an
+        // in-progress timer just because the whole set was re-sent). A qid that
+        // is no longer open has its `quizOpenedAt` cleared.
+        const now = Date.now()
+        for (const qid of nextOpen) {
+          if (!room.quizOpen.has(qid)) {
+            room.quizOpenedAt.set(qid, now)
+            room.quizSeen.delete(qid)
+          }
+        }
+        for (const qid of room.quizOpen) {
+          if (!nextOpen.has(qid)) room.quizOpenedAt.delete(qid)
         }
         room.quizOpen = nextOpen
         // Echoed to hosts as well as guests. The tutor's UI reads the open set from
@@ -357,7 +382,14 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
       if (typeof msg.value !== 'string' || msg.value.length > MAX_ANSWER_LEN) return
       const name = clampQuizName(msg.name)
       const correct = gradeAnswer(msg.value, key)
-      const seenAt = room.quizSeen.get(qid)?.get(userId) ?? Date.now()
+      // Baseline for elapsedMs, preferring the most trustworthy source available:
+      // (1) the student's own reported seenAt is fairest — a late joiner is timed
+      //     from when THEY saw the question, not from when the tutor opened it;
+      // (2) if that client message was ever dropped or rate-limited, degrade to
+      //     the server's own quizOpenedAt ("time since the tutor said go");
+      // (3) only if neither exists (shouldn't happen once quiz-open sets it),
+      //     fall back to now — rather than silently collapsing elapsed to zero.
+      const seenAt = room.quizSeen.get(qid)?.get(userId) ?? room.quizOpenedAt.get(qid) ?? Date.now()
 
       let subsMap = room.quizSubs.get(qid)
       if (!subsMap) {

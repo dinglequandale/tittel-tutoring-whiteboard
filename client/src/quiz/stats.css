@@ -266,3 +266,52 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* "Everyone's answered" — a deliberately loud, unmissable "you can proceed"
+   signal, not a subtle annotation. Two renderings: a dock pill (glanceable even
+   with the panel closed) and a banner inside the panel itself. */
+.qs-all-answered-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: white;
+  background: #16a34a;
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.12);
+  white-space: nowrap;
+}
+
+.qs-all-answered-banner {
+  flex: 0 0 auto;
+  padding: 0.45rem 0.65rem;
+  background: #16a34a;
+  color: white;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* A live (currently open / accepting answers) question row: a left accent bar
+   plus a small dot beside the question id. */
+.qs-row-open {
+  border-left: 3px solid #22c55e;
+}
+
+.qs-row-open .qs-qid::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 0.4rem;
+  border-radius: 50%;
+  background: #22c55e;
+  vertical-align: middle;
+}
+
+/* A question row that has reached full roster coverage: highlight the count. */
+.qs-answered-complete {
+  color: #16a34a;
+  font-weight: 700;
+}

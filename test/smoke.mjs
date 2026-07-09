@@ -579,6 +579,75 @@ check('late student receives current edit-access on join', joinMsgs.some((m) => 
   for (const ws of [h, g, late, h3]) ws.close()
 }
 
+// 15: elapsed-timer fix — quiz-seen dependency + server-side quizOpenedAt -----
+// Regression coverage for the bug where AnswerOverlay's quiz-seen effect never
+// re-ran on open (stale deps), so no quiz-seen was ever sent and the server's
+// `?? Date.now()` fallback made elapsedMs always 0.
+{
+  const r = `timing-${Math.random().toString(36).slice(2, 8)}`
+  const { ws: h, inbox: hostMsgs } = await openWithInbox(`${WS}/control/${r}?role=host`)
+  const { ws: g, inbox: guestMsgs } = await openWithInbox(`${WS}/control/${r}?role=guest`)
+  await wait(100)
+
+  const lastStats = () => hostMsgs.filter((m) => m.type === 'quiz-stats').at(-1)
+  const q = (id) => lastStats()?.stats.questions.find((x) => x.qid === id)
+  const sub = (id, userId) => q(id)?.students.find((s) => s.userId === userId)
+
+  h.send(
+    JSON.stringify({
+      type: 'quiz-key',
+      questions: [
+        { id: 't1', format: 'choice', key: 'B', reveal: 'immediate' },
+        { id: 't2', format: 'grid', key: '8', reveal: 'never' },
+      ],
+    }),
+  )
+  await wait(150)
+
+  // Host opens t1. Guest reports quiz-seen, waits a real ~150ms, then answers.
+  // elapsedMs must be measurably > 0 — the regression this section guards.
+  h.send(JSON.stringify({ type: 'quiz-open', qids: ['t1'] }))
+  await wait(100)
+  g.send(JSON.stringify({ type: 'quiz-seen', userId: 'stu-timed', qids: ['t1'] }))
+  await wait(150)
+  g.send(JSON.stringify({ type: 'quiz-answer', userId: 'stu-timed', name: 'Tara', qid: 't1', value: 'B' }))
+  await wait(150)
+  const timedSub = sub('t1', 'stu-timed')
+  check(
+    'quiz-seen -> wait ~150ms -> answer yields elapsedMs > 50 (not 0)',
+    !!timedSub && timedSub.elapsedMs > 50,
+  )
+
+  // Fallback: a guest that answers WITHOUT ever sending quiz-seen still gets a
+  // non-zero elapsedMs, because the server stamped quizOpenedAt at open time.
+  h.send(JSON.stringify({ type: 'quiz-open', qids: ['t1', 't2'] }))
+  await wait(150)
+  g.send(JSON.stringify({ type: 'quiz-answer', userId: 'stu-noseen', name: 'Nia', qid: 't2', value: '8' }))
+  await wait(150)
+  const noSeenSub = sub('t2', 'stu-noseen')
+  check(
+    'answer with no prior quiz-seen still gets non-zero elapsedMs (server openedAt fallback)',
+    !!noSeenSub && noSeenSub.elapsedMs > 0,
+  )
+
+  // Re-open resets openedAt: close t2, wait, re-open, answer immediately -> a
+  // small elapsed time (measured from the re-open), not from the original open
+  // moments ago.
+  h.send(JSON.stringify({ type: 'quiz-open', qids: ['t1'] }))
+  await wait(150)
+  h.send(JSON.stringify({ type: 'quiz-open', qids: ['t1', 't2'] }))
+  await wait(20)
+  g.send(JSON.stringify({ type: 'quiz-answer', userId: 'stu-reopen', name: 'Remy', qid: 't2', value: '8' }))
+  await wait(150)
+  const reopenSub = sub('t2', 'stu-reopen')
+  check(
+    're-opening a qid resets its openedAt (fresh answer has a small elapsedMs)',
+    !!reopenSub && reopenSub.elapsedMs < 5000,
+  )
+
+  for (const ws of [h, g]) ws.close()
+}
+
 // 5: /connect sync socket accepts upgrade and stays open ----------------------
 const sync = await open(`${WS}/connect/${ROOM}?sessionId=sess-1`)
 await wait(1500)

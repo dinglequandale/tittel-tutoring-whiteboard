@@ -29,10 +29,13 @@
 .qa-gate {
   background: rgba(255, 255, 255, 0.9);
   padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 .qa-gate-btn {
-  width: 100%;
+  flex: 1 1 auto;
   cursor: pointer;
   border: 1px dashed #cbd5e1;
   border-radius: 0.4rem;
@@ -53,6 +56,19 @@
   border-color: #16a34a;
   background: #f0fdf4;
   color: #15803d;
+}
+
+/* Host-only annotation: the correct answer, shown small and muted next to the
+   gate button so it reads as a quiet aside, not a control competing with the
+   problem itself. Never rendered for guests (see AnswerOverlay.tsx). */
+.qa-key {
+  flex: 0 0 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  color: var(--muted, #94a3b8);
+  opacity: 0.8;
+  padding: 0 0.15rem;
+  white-space: nowrap;
 }
 
 .qa-choices {
