@@ -253,6 +253,184 @@ check('late student receives current edit-access on join', joinMsgs.some((m) => 
   for (const ws of [h, g, late]) ws.close()
 }
 
+// 12: quiz answer collection (host-only stats, key never leaks to guests) ----
+{
+  const MAX_ANSWER_LEN = 32
+  const r = `quiz-${Math.random().toString(36).slice(2, 8)}`
+  const h = await open(`${WS}/control/${r}?role=host`)
+  const g = await open(`${WS}/control/${r}?role=guest`)
+  await wait(100)
+
+  const hostMsgs = []
+  h.on('message', (d) => hostMsgs.push(JSON.parse(d.toString())))
+  const guestMsgs = []
+  g.on('message', (d) => guestMsgs.push(JSON.parse(d.toString())))
+  const lastStats = () => hostMsgs.filter((m) => m.type === 'quiz-stats').at(-1)
+
+  // Host uploads a key: one immediate-reveal MC question, one never-reveal grid-in.
+  h.send(
+    JSON.stringify({
+      type: 'quiz-key',
+      questions: [
+        { id: 'q1', format: 'choice', key: 'B', reveal: 'immediate' },
+        { id: 'q2', format: 'grid', key: '2/3', reveal: 'never' },
+      ],
+    }),
+  )
+  await wait(150)
+  const statsAfterKey = lastStats()
+  check(
+    'host receives quiz-stats after quiz-key, both questions answered:0',
+    !!statsAfterKey &&
+      statsAfterKey.stats.questions.length === 2 &&
+      statsAfterKey.stats.questions.every((q) => q.answered === 0),
+  )
+
+  // Guest sees q1, waits, then answers correctly. Reveal is immediate -> ack carries correct.
+  g.send(JSON.stringify({ type: 'quiz-seen', userId: 'stu-a', qids: ['q1', 'q2'] }))
+  await wait(50)
+  g.send(JSON.stringify({ type: 'quiz-answer', userId: 'stu-a', name: 'Alice', qid: 'q1', value: 'B' }))
+  await wait(150)
+  const ack1 = guestMsgs.filter((m) => m.type === 'quiz-ack' && m.qid === 'q1').at(-1)
+  check('guest receives quiz-ack for q1 with correct === true (immediate reveal)', !!ack1 && ack1.correct === true)
+  const statsAfterQ1 = lastStats()
+  const q1StatsFirst = statsAfterQ1 && statsAfterQ1.stats.questions.find((q) => q.qid === 'q1')
+  check(
+    'host stats show q1 answered:1, firstCorrect:1, medianMs a number >= 0',
+    !!q1StatsFirst &&
+      q1StatsFirst.answered === 1 &&
+      q1StatsFirst.firstCorrect === 1 &&
+      typeof q1StatsFirst.medianMs === 'number' &&
+      q1StatsFirst.medianMs >= 0,
+  )
+
+  // Guest answers q2 with the rounded repeating decimal. Reveal is 'never' -> no correct field.
+  g.send(JSON.stringify({ type: 'quiz-answer', userId: 'stu-a', name: 'Alice', qid: 'q2', value: '.6667' }))
+  await wait(150)
+  const ack2 = guestMsgs.filter((m) => m.type === 'quiz-ack' && m.qid === 'q2').at(-1)
+  check('guest receives quiz-ack for q2 with no correct property (reveal never)', !!ack2 && !('correct' in ack2))
+  const q2Stats = lastStats().stats.questions.find((q) => q.qid === 'q2')
+  check('host stats show q2 firstCorrect:1 despite never-reveal', !!q2Stats && q2Stats.firstCorrect === 1)
+
+  // Same student resubmits q1 with a wrong answer: only latest/latestCorrect move.
+  g.send(JSON.stringify({ type: 'quiz-answer', userId: 'stu-a', name: 'Alice', qid: 'q1', value: 'C' }))
+  await wait(150)
+  const q1StatsResubmit = lastStats().stats.questions.find((q) => q.qid === 'q1')
+  check(
+    'resubmission: answered stays 1, firstCorrect unchanged, latestCorrect flips, elapsedMs (medianMs) unchanged',
+    !!q1StatsResubmit &&
+      q1StatsResubmit.answered === 1 &&
+      q1StatsResubmit.firstCorrect === 1 &&
+      q1StatsResubmit.latestCorrect === 0 &&
+      q1StatsResubmit.medianMs === q1StatsFirst.medianMs,
+  )
+
+  // A guest cannot install a key or trigger reveal — those live only in the host branch.
+  const beforeFakeCount = hostMsgs.length
+  g.send(
+    JSON.stringify({ type: 'quiz-key', questions: [{ id: 'evil', format: 'choice', key: 'A', reveal: 'immediate' }] }),
+  )
+  g.send(JSON.stringify({ type: 'quiz-reveal' }))
+  await wait(150)
+  check('guest quiz-key/quiz-reveal produce no host stats push', hostMsgs.length === beforeFakeCount)
+  g.send(JSON.stringify({ type: 'quiz-answer', userId: 'stu-x', name: 'X', qid: 'evil', value: 'A' }))
+  await wait(150)
+  check(
+    'guest-supplied key was never installed (answer to it is ignored)',
+    !guestMsgs.some((m) => m.type === 'quiz-ack' && m.qid === 'evil'),
+  )
+
+  // An overlong answer is rejected outright (no ack, no stats change).
+  const beforeLongHost = hostMsgs.length
+  const beforeLongGuest = guestMsgs.length
+  g.send(
+    JSON.stringify({ type: 'quiz-answer', userId: 'stu-b', name: 'Bob', qid: 'q1', value: 'X'.repeat(MAX_ANSWER_LEN + 1) }),
+  )
+  await wait(150)
+  check('overlong answer produces no ack', guestMsgs.length === beforeLongGuest)
+  check('overlong answer produces no stats push', hostMsgs.length === beforeLongHost)
+
+  // An answer for an unknown qid is ignored outright.
+  const beforeUnknownHost = hostMsgs.length
+  const beforeUnknownGuest = guestMsgs.length
+  g.send(JSON.stringify({ type: 'quiz-answer', userId: 'stu-c', name: 'Cara', qid: 'nope', value: 'A' }))
+  await wait(150)
+  check('unknown-qid answer produces no ack', guestMsgs.length === beforeUnknownGuest)
+  check('unknown-qid answer produces no stats push', hostMsgs.length === beforeUnknownHost)
+
+  // Host reveals: guest gets the answer keys; a late joiner gets them too.
+  h.send(JSON.stringify({ type: 'quiz-reveal' }))
+  await wait(150)
+  const revealed = guestMsgs.filter((m) => m.type === 'quiz-revealed').at(-1)
+  check('guest receives quiz-revealed with keys.q1 === "B"', !!revealed && revealed.keys.q1 === 'B')
+
+  const late = await open(`${WS}/control/${r}?role=guest`)
+  const lateMsgs = []
+  late.on('message', (d) => lateMsgs.push(JSON.parse(d.toString())))
+  await wait(300)
+  check(
+    'late-joining guest also receives quiz-revealed on connect',
+    lateMsgs.some((m) => m.type === 'quiz-revealed' && m.keys?.q1 === 'B'),
+  )
+
+  // A reconnecting host is replayed the current stats so it doesn't lose the panel.
+  const h2 = await open(`${WS}/control/${r}?role=host`)
+  const h2Msgs = []
+  h2.on('message', (d) => h2Msgs.push(JSON.parse(d.toString())))
+  await wait(300)
+  check('reconnecting host receives quiz-stats on connect', h2Msgs.some((m) => m.type === 'quiz-stats'))
+
+  // A guest must never receive quiz-stats — it contains every student's answers.
+  check(
+    'guest never receives quiz-stats',
+    ![...guestMsgs, ...lateMsgs].some((m) => m.type === 'quiz-stats'),
+  )
+
+  for (const ws of [h, g, late, h2]) ws.close()
+}
+
+// 13: a page with more questions than the guest rate limit --------------------
+// Regression: `quiz-seen` is batched precisely so a page like the Homework Review
+// (16 problems, all rendering at once) can't trip the per-second limiter and lose
+// the seenAt timestamps, which would silently report elapsedMs: 0 for the tail.
+{
+  const r = `seen-${Math.random().toString(36).slice(2, 8)}`
+  const h = await open(`${WS}/control/${r}?role=host`)
+  const g = await open(`${WS}/control/${r}?role=guest`)
+  await wait(100)
+  const hostMsgs = []
+  h.on('message', (d) => hostMsgs.push(JSON.parse(d.toString())))
+
+  const N = 16 // > GUEST_MSG_RATE (10)
+  const questions = Array.from({ length: N }, (_, i) => ({
+    id: `s${i}`,
+    format: 'grid',
+    key: String(i),
+    reveal: 'never',
+  }))
+  h.send(JSON.stringify({ type: 'quiz-key', questions }))
+  await wait(150)
+
+  // One batched message covering the whole page, as a real client would send.
+  g.send(JSON.stringify({ type: 'quiz-seen', userId: 'stu-z', qids: questions.map((q) => q.id) }))
+  await wait(120)
+
+  // Answer the LAST question — the one a per-question sender would have dropped.
+  const lastId = `s${N - 1}`
+  g.send(JSON.stringify({ type: 'quiz-answer', userId: 'stu-z', name: 'Zoe', qid: lastId, value: String(N - 1) }))
+  await wait(200)
+
+  const stats = hostMsgs.filter((m) => m.type === 'quiz-stats').at(-1)
+  const lastQ = stats && stats.stats.questions.find((q) => q.qid === lastId)
+  check(`all ${N} questions present in stats`, !!stats && stats.stats.questions.length === N)
+  check('last question on an oversized page was graded correct', !!lastQ && lastQ.firstCorrect === 1)
+  check(
+    'last question retained its seenAt (elapsedMs > 0, not a dropped quiz-seen)',
+    !!lastQ && lastQ.students[0].elapsedMs > 0,
+  )
+  for (const ws of [h, g]) ws.close()
+}
+
 // 5: /connect sync socket accepts upgrade and stays open ----------------------
 const sync = await open(`${WS}/connect/${ROOM}?sessionId=sess-1`)
 await wait(1500)

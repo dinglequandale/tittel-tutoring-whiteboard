@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url'
 import express from 'express'
 import { WebSocketServer, WebSocket } from 'ws'
 import { nanoid } from 'nanoid'
-import { getOrCreateRoom, getRoom, type ControlClient } from './rooms.ts'
+import { getOrCreateRoom, getRoom, type ControlClient, type Room } from './rooms.ts'
+import type { QuestionKey, QuizStats, Submission } from '../shared/quiz.ts'
+import { gradeAnswer } from '../shared/grade.ts'
+import { MAX_ANSWER_LEN, GUEST_MSG_RATE, MAX_SEEN_BATCH } from '../shared/quiz.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.PORT) || 5858
@@ -82,9 +85,52 @@ function handleSync(ws: WebSocket, roomId: string, url: URL) {
   room.socketRoom.handleSocketConnect({ sessionId, socket: ws as never })
 }
 
+/** Builds the host-facing quiz stats snapshot, one QuestionStats per key, in key insertion order. */
+function quizStats(room: Room): QuizStats {
+  const questions = Array.from(room.quizKey.keys()).map((qid) => {
+    const subsByUser = room.quizSubs.get(qid)
+    const students: Submission[] = subsByUser ? Array.from(subsByUser.values()) : []
+    const answered = students.length
+    const firstCorrect = students.filter((s) => s.firstCorrect).length
+    const latestCorrect = students.filter((s) => s.latestCorrect).length
+    let medianMs: number | null = null
+    if (students.length > 0) {
+      const sorted = students.map((s) => s.elapsedMs).sort((a, b) => a - b)
+      const mid = Math.floor(sorted.length / 2)
+      medianMs =
+        sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+    }
+    return { qid, answered, firstCorrect, latestCorrect, medianMs, students }
+  })
+  return { questions, revealed: room.quizRevealed }
+}
+
+/** A userId/qid is a short, non-empty string. Guests are untrusted, so cap length. */
+function validQuizId(s: unknown): s is string {
+  return typeof s === 'string' && s.length > 0 && s.length <= 64
+}
+
+/** Clamps a guest-supplied display name; falls back to a generic label. */
+function clampQuizName(raw: unknown): string {
+  if (typeof raw !== 'string' || raw.length === 0) return 'Student'
+  return raw.slice(0, 64)
+}
+
+/** Simple rolling-window rate limit: at most GUEST_MSG_RATE quiz messages/sec/socket. */
+function allowQuizMessage(client: ControlClient): boolean {
+  const now = Date.now()
+  const rate = client.quizRate
+  if (now - rate.windowStart >= 1000) {
+    rate.windowStart = now
+    rate.count = 0
+  }
+  rate.count++
+  return rate.count <= GUEST_MSG_RATE
+}
+
 function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
   const room = getOrCreateRoom(roomId)
-  const client: ControlClient = { socket: ws, role }
+  const client: ControlClient = { socket: ws, role, quizRate: { windowStart: Date.now(), count: 0 } }
   room.controls.add(client)
 
   const broadcastToGuests = (payload: unknown) => {
@@ -99,6 +145,13 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
       if (c.socket !== ws) safeSend(c.socket, payload)
     }
   }
+  // Quiz stats (contains every student's answers) must never reach a guest.
+  const sendToHosts = (payload: unknown) => {
+    for (const c of room.controls) {
+      if (c.role === 'host') safeSend(c.socket, payload)
+    }
+  }
+  const pushQuizStats = () => sendToHosts({ type: 'quiz-stats', stats: quizStats(room) })
 
   // A student joining mid-session immediately snaps to the tutor's current
   // view, the open calculator + its state, and the current edit-access setting.
@@ -119,6 +172,14 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
       if (room.lastTimerState) safeSend(ws, { type: 'timer', action: 'state', ...room.lastTimerState })
       if (room.lastTimerPos) safeSend(ws, { type: 'timer', action: 'geom', geom: room.lastTimerPos })
     }
+    if (room.quizRevealed) {
+      const keys: Record<string, string> = {}
+      for (const [qid, key] of room.quizKey) keys[qid] = key.key
+      safeSend(ws, { type: 'quiz-revealed', keys })
+    }
+  } else {
+    // A tutor reconnecting mid-class shouldn't lose the stats panel.
+    safeSend(ws, { type: 'quiz-stats', stats: quizStats(room) })
   }
 
   ws.on('message', (data) => {
@@ -136,6 +197,11 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
       remainingMs?: number
       sentAt?: number
       running?: boolean
+      questions?: unknown
+      qid?: string
+      qids?: unknown
+      value?: string
+      name?: string
     }
     try {
       msg = JSON.parse(data.toString())
@@ -196,6 +262,34 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
           room.lastTimerPos = msg.geom as { x: number; y: number }
           broadcastToGuests({ type: 'timer', action: 'geom', geom: room.lastTimerPos })
         }
+      } else if (msg?.type === 'quiz-key' && Array.isArray(msg.questions)) {
+        // Tutor (re-)uploaded the answer key for the current lesson. Rebuild the
+        // key set, but only drop seen/submission state for qids that no longer
+        // exist — surviving qids keep the class's work across a host refresh.
+        const nextKey = new Map<string, QuestionKey>()
+        for (const q of msg.questions as QuestionKey[]) {
+          if (q && typeof q.id === 'string') nextKey.set(q.id, q)
+        }
+        room.quizKey = nextKey
+        for (const qid of Array.from(room.quizSeen.keys())) {
+          if (!nextKey.has(qid)) room.quizSeen.delete(qid)
+        }
+        for (const qid of Array.from(room.quizSubs.keys())) {
+          if (!nextKey.has(qid)) room.quizSubs.delete(qid)
+        }
+        pushQuizStats()
+      } else if (msg?.type === 'quiz-reveal') {
+        room.quizRevealed = true
+        const keys: Record<string, string> = {}
+        for (const [qid, key] of room.quizKey) keys[qid] = key.key
+        broadcastToGuests({ type: 'quiz-revealed', keys })
+        pushQuizStats()
+      } else if (msg?.type === 'quiz-reset') {
+        room.quizSeen.clear()
+        room.quizSubs.clear()
+        room.quizRevealed = false
+        pushQuizStats()
+        broadcastToGuests({ type: 'quiz-reset' })
       }
     } else if (
       msg?.type === 'calc' &&
@@ -205,6 +299,61 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
       // Students' edits propagate only while editing is enabled.
       room.lastCalcState = msg.state
       broadcastToOthers(msg)
+    } else if (msg?.type === 'quiz-seen') {
+      if (!allowQuizMessage(client)) return
+      const { userId, qids } = msg
+      if (!validQuizId(userId) || !Array.isArray(qids)) return
+      const now = Date.now()
+      // One batched message per page render (see MAX_SEEN_BATCH): a page can hold
+      // more questions than the per-second rate limit allows as separate messages.
+      for (const qid of qids.slice(0, MAX_SEEN_BATCH)) {
+        if (!validQuizId(qid) || !room.quizKey.has(qid)) continue
+        let seenMap = room.quizSeen.get(qid)
+        if (!seenMap) {
+          seenMap = new Map()
+          room.quizSeen.set(qid, seenMap)
+        }
+        // Idempotent: only the first-ever "seen" for this (qid, userId) sticks.
+        if (!seenMap.has(userId)) seenMap.set(userId, now)
+      }
+    } else if (msg?.type === 'quiz-answer') {
+      if (!allowQuizMessage(client)) return
+      const { qid, userId } = msg
+      if (!validQuizId(qid) || !validQuizId(userId)) return
+      const key = room.quizKey.get(qid)
+      if (!key) return
+      if (typeof msg.value !== 'string' || msg.value.length > MAX_ANSWER_LEN) return
+      const name = clampQuizName(msg.name)
+      const correct = gradeAnswer(msg.value, key)
+      const seenAt = room.quizSeen.get(qid)?.get(userId) ?? Date.now()
+
+      let subsMap = room.quizSubs.get(qid)
+      if (!subsMap) {
+        subsMap = new Map()
+        room.quizSubs.set(qid, subsMap)
+      }
+      const existing = subsMap.get(userId)
+      if (!existing) {
+        subsMap.set(userId, {
+          userId,
+          name,
+          first: msg.value,
+          firstCorrect: correct,
+          latest: msg.value,
+          latestCorrect: correct,
+          elapsedMs: Math.max(0, Date.now() - seenAt),
+        })
+      } else {
+        // Resubmission: only `latest`/`latestCorrect`/`name` move.
+        existing.name = name
+        existing.latest = msg.value
+        existing.latestCorrect = correct
+      }
+
+      const ack: { type: 'quiz-ack'; qid: string; correct?: boolean } = { type: 'quiz-ack', qid }
+      if (key.reveal === 'immediate' || room.quizRevealed) ack.correct = correct
+      safeSend(ws, ack)
+      pushQuizStats()
     }
   })
 

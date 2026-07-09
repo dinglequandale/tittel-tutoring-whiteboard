@@ -4,9 +4,31 @@
 // its own content and the empty spacing beneath it (the workspace where live
 // handwritten work lands). Any class shape — problem-heavy, slide-heavy, mixed —
 // is just different content poured into the same container.
+//
+// `answer` is the one exception worth calling out: it says "this block accepts
+// a response" — never "this block is practice" or "this block is a warm-up".
+// Demo/explanation blocks simply omit it. The format still knows nothing about
+// pedagogy; it only knows some blocks collect an answer and some don't.
+
+import type { AnswerFormat, Reveal } from '../../../shared/quiz.ts'
+import { DEFAULT_CHOICES } from '../../../shared/quiz.ts'
 
 export type BlockType = 'latex' | 'text' | 'image'
 export type BlockKind = 'heading' | 'body'
+
+/**
+ * Resolved answer-collection config for a block. `reveal` is always resolved
+ * by parse time (block's own, else the page's, else 'never') so nothing
+ * downstream needs to re-derive precedence.
+ */
+export interface LessonAnswer {
+  format: AnswerFormat
+  key: string
+  accept?: string[]
+  /** 'choice' only; defaults to DEFAULT_CHOICES. Ignored (and dropped) for 'grid'. */
+  choices?: string[]
+  reveal: Reveal
+}
 
 /** One renderable entity: a problem, a whole problem set, an explanation, or an image. */
 export interface LessonBlock {
@@ -22,6 +44,8 @@ export interface LessonBlock {
   spacingAfter: number
   /** Max rendered width (px) for this block. Overrides the doc default. */
   maxWidth: number
+  /** Absent for anything that isn't collecting a response (headings, prose, demos). */
+  answer?: LessonAnswer
 }
 
 export interface LessonPage {
@@ -29,6 +53,8 @@ export interface LessonPage {
   label: string
   /** Optional hint for the suggested student mode when this page is shown. Advisory only. */
   mode?: 'follow' | 'free'
+  /** Page-level default for a block's answer reveal, when the block doesn't set its own. */
+  reveal?: Reveal
   blocks: LessonBlock[]
 }
 
@@ -56,6 +82,72 @@ function asString(v: unknown, fallback = ''): string {
 }
 function asNumber(v: unknown, fallback: number): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : fallback
+}
+/** Non-throwing: filters to non-empty strings, drops the rest. undefined if nothing survives. */
+function asStringArray(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined
+  const cleaned = v.filter((s): s is string => typeof s === 'string' && s.trim() !== '')
+  return cleaned.length > 0 ? cleaned : undefined
+}
+
+/**
+ * Answers are compared as strings, but a grid-in answer is naturally authored as
+ * a JSON number (`"key": 8`, not `"key": "8"`). Accept both, so writing a lesson
+ * never depends on remembering to quote a number.
+ */
+function asAnswerString(v: unknown): string {
+  if (typeof v === 'string') return v
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v)
+  return ''
+}
+
+/** Like `asStringArray`, but tolerates numeric entries (see `asAnswerString`). */
+function asAnswerStringArray(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined
+  const cleaned = v.map(asAnswerString).filter((s) => s.trim() !== '')
+  return cleaned.length > 0 ? cleaned : undefined
+}
+
+/**
+ * Parse a block's optional `answer`. Absent -> undefined (the common case: headings,
+ * prose, demos never collect a response). Present but structurally broken -> throws,
+ * because a silently-dropped `key` or `format` would corrupt grading for a whole class.
+ * Everything else about `answer` is coerced defensively, in keeping with the rest of
+ * this parser.
+ */
+function parseAnswer(
+  raw: unknown,
+  pageReveal: Reveal | undefined,
+  pi: number,
+  bi: number,
+): LessonAnswer | undefined {
+  if (raw === undefined || raw === null) return undefined
+  if (typeof raw !== 'object') {
+    throw new LessonParseError(`Block ${bi + 1} on page ${pi + 1} has an invalid "answer".`)
+  }
+  const a = raw as Record<string, unknown>
+
+  if (a.format !== 'choice' && a.format !== 'grid') {
+    throw new LessonParseError(
+      `Block ${bi + 1} on page ${pi + 1} answer needs "format" to be "choice" or "grid".`,
+    )
+  }
+  const format = a.format
+
+  const key = asAnswerString(a.key).trim()
+  if (!key) {
+    throw new LessonParseError(`Block ${bi + 1} on page ${pi + 1} answer needs a non-empty "key".`)
+  }
+
+  const accept = asAnswerStringArray(a.accept)
+
+  // Only meaningful for 'choice'; 'grid' never carries choices, whatever was passed in.
+  const choices = format === 'choice' ? (asStringArray(a.choices) ?? [...DEFAULT_CHOICES]) : undefined
+
+  const blockReveal = a.reveal === 'immediate' || a.reveal === 'never' ? a.reveal : undefined
+  const reveal: Reveal = blockReveal ?? pageReveal ?? 'never'
+
+  return { format, key, accept, choices, reveal }
 }
 
 /**
@@ -89,6 +181,7 @@ export function parseLessonDoc(raw: unknown): LessonDoc {
       throw new LessonParseError(`Page ${pi + 1} needs a "blocks" array.`)
     }
     const mode = page.mode === 'free' || page.mode === 'follow' ? page.mode : undefined
+    const pageReveal = page.reveal === 'immediate' || page.reveal === 'never' ? page.reveal : undefined
 
     const blocks: LessonBlock[] = page.blocks.map((b, bi) => {
       if (!b || typeof b !== 'object') {
@@ -107,6 +200,8 @@ export function parseLessonDoc(raw: unknown): LessonDoc {
         throw new LessonParseError(`Block ${bi + 1} on page ${pi + 1} needs "content".`)
       }
 
+      const answer = parseAnswer(block.answer, pageReveal, pi, bi)
+
       return {
         type,
         kind,
@@ -114,10 +209,11 @@ export function parseLessonDoc(raw: unknown): LessonDoc {
         src: asString(block.src),
         spacingAfter: asNumber(block.spacingAfter, defaults.spacing),
         maxWidth: asNumber(block.maxWidth, defaults.maxWidth),
+        answer,
       }
     })
 
-    return { label: asString(page.label, `Page ${pi + 1}`), mode, blocks }
+    return { label: asString(page.label, `Page ${pi + 1}`), mode, reveal: pageReveal, blocks }
   })
 
   return { title: asString(obj.title, 'Lesson'), pages }

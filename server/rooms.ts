@@ -1,5 +1,6 @@
 import { TLSocketRoom } from '@tldraw/sync-core'
 import type { WebSocket as WsSocket } from 'ws'
+import type { QuestionKey, Submission } from '../shared/quiz.ts'
 
 // Rooms are 100% in-memory and volatile. When the last drawing session leaves,
 // we wait a short grace period (to survive refreshes/flaky networks) and then
@@ -8,7 +9,12 @@ const GRACE_MS = 30_000
 
 type AssetBlob = { data: Buffer; contentType: string }
 
-export type ControlClient = { socket: WsSocket; role: 'host' | 'guest' }
+export type ControlClient = {
+  socket: WsSocket
+  role: 'host' | 'guest'
+  /** Rolling-window rate limit state for guest quiz messages (see GUEST_MSG_RATE). */
+  quizRate: { windowStart: number; count: number }
+}
 
 export interface Room {
   id: string
@@ -41,6 +47,14 @@ export interface Room {
   lastTimerState: { remainingMs: number; sentAt: number; running: boolean } | null
   /** The tutor's last timer position, replayed to students who join late. */
   lastTimerPos: { x: number; y: number } | null
+  /** Host-supplied answer keys for the current lesson, qid -> key. Never sent to guests. */
+  quizKey: Map<string, QuestionKey>
+  /** qid -> userId -> ms timestamp the student's client first rendered the question. */
+  quizSeen: Map<string, Map<string, number>>
+  /** qid -> userId -> that student's submission (grading is authoritative, server-side). */
+  quizSubs: Map<string, Map<string, Submission>>
+  /** Whether the tutor has pressed "Reveal answers" for the current key set. */
+  quizRevealed: boolean
   closeTimer: ReturnType<typeof setTimeout> | null
 }
 
@@ -73,6 +87,10 @@ export function getOrCreateRoom(id: string): Room {
     timerVisible: false,
     lastTimerState: null,
     lastTimerPos: null,
+    quizKey: new Map(),
+    quizSeen: new Map(),
+    quizSubs: new Map(),
+    quizRevealed: false,
     closeTimer: null,
     // Set just below; typed non-null for ergonomic access.
     socketRoom: undefined as unknown as TLSocketRoom<any, void>,
