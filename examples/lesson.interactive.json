@@ -1,0 +1,63 @@
+{
+  "title": "SAT — Interactive answers (example)",
+  "defaults": { "spacing": 260, "maxWidth": 720 },
+  "pages": [
+    {
+      "label": "Practice (instant feedback)",
+      "mode": "follow",
+      "reveal": "immediate",
+      "blocks": [
+        { "type": "text", "kind": "heading", "content": "Practice", "spacingAfter": 50 },
+        {
+          "type": "text",
+          "content": "Demo — we solve this one together. No answer box should appear below it.",
+          "spacingAfter": 40
+        },
+        { "type": "latex", "content": "Demo. Solve $3x - 7 = 11$ for $x$.", "spacingAfter": 200 },
+        {
+          "type": "latex",
+          "content": "1. If $2x + 5 = 17$, what is the value of $x$?\n(A) $4$    (B) $5$    (C) $6$    (D) $7$",
+          "answer": { "format": "choice", "key": "C" }
+        },
+        {
+          "type": "latex",
+          "content": "2. What is the slope of the line through $(1, 1)$ and $(4, 7)$?    (grid-in)",
+          "answer": { "format": "grid", "key": 2 }
+        }
+      ]
+    },
+    {
+      "label": "Independent Work (no feedback)",
+      "mode": "free",
+      "reveal": "never",
+      "blocks": [
+        { "type": "text", "kind": "heading", "content": "Independent Work", "spacingAfter": 30 },
+        {
+          "type": "text",
+          "content": "Work on paper. Enter only your final answer. You will not be told whether you are right until we review together.",
+          "spacingAfter": 50
+        },
+        {
+          "type": "latex",
+          "content": "3. $$x = \\frac{40}{x + 3}$$ What is the negative solution to the given equation?    (grid-in)",
+          "answer": { "format": "grid", "key": -8 }
+        },
+        {
+          "type": "latex",
+          "content": "4. Line $p$ is defined by $4y + 8x = 6$. Line $r$ is perpendicular to line $p$ in the $xy$-plane. What is the slope of line $r$?    (grid-in)",
+          "answer": { "format": "grid", "key": "1/2", "accept": ["0.5", ".5"] }
+        },
+        {
+          "type": "latex",
+          "content": "5. Which of the following is equivalent to $(2x - 3)(x + 5)$?\n(A) $2x^2 + 7x - 15$    (B) $2x^2 - 7x - 15$    (C) $2x^2 + 7x + 15$    (D) $2x^2 + 13x - 15$",
+          "answer": { "format": "choice", "key": "A" }
+        },
+        {
+          "type": "latex",
+          "content": "6. If $f(3x) = x - 6$ for all $x$, what is the value of $f(6)$?\n(A) $-6$    (B) $-4$    (C) $0$    (D) $2$",
+          "answer": { "format": "choice", "key": "B", "reveal": "immediate" }
+        }
+      ]
+    }
+  ]
+}
