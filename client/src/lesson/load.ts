@@ -1,14 +1,29 @@
-import { AssetRecordType, PageRecordType, createShapeId, type Editor, type TLPageId } from 'tldraw'
+import {
+  AssetRecordType,
+  PageRecordType,
+  createShapeId,
+  type Editor,
+  type JsonObject,
+  type TLPageId,
+} from 'tldraw'
 import { nanoid } from 'nanoid'
 import { parseLessonDoc } from './schema'
 import { renderBlock } from './render'
 import { computeLayout, blockId, pageId } from './layout'
+import { questionMetaFor, questionKeysFromDoc } from './keys'
+import type { QuestionKey } from '../../../shared/quiz.ts'
 
 // Host-side injection of a lesson into the live, synced tldraw store. Because the
 // store is synced, every student sees the pages/blocks appear automatically — no
 // separate broadcast needed. Lesson pages are tagged in `meta` so re-loading
 // (e.g. after a host refresh) cleanly replaces the previous lesson instead of
 // duplicating it. Nothing is persisted: it lives only in the ephemeral room.
+//
+// Each answerable block's shape also carries `meta.q` (a `QuestionMeta`) so
+// students' clients can render an answer control — but never the answer key
+// itself. Keys are returned to the caller as `LoadResult.keys`; it's on the
+// caller to upload them to the server over the control channel. This module
+// never sends anything over the network beyond the rendered assets.
 
 async function uploadAsset(roomId: string, blob: Blob): Promise<string> {
   const id = `${nanoid()}-lesson.png`
@@ -43,6 +58,7 @@ function clearPreviousLesson(editor: Editor) {
 export interface LoadResult {
   pages: number
   blocks: number
+  keys: QuestionKey[]
 }
 
 /**
@@ -87,6 +103,7 @@ export async function loadLesson(
 
       for (const pb of page.blocks) {
         const info = built.get(`${page.pageIndex}:${pb.blockIndex}`)!
+        const block = doc.pages[page.pageIndex].blocks[pb.blockIndex]
         const assetId = AssetRecordType.createId(nanoid())
         editor.createAssets([
           {
@@ -104,6 +121,16 @@ export async function loadLesson(
             meta: {},
           },
         ])
+        const q = questionMetaFor(block, page.pageIndex, pb.blockIndex)
+        // Rebuilt as a literal rather than spread from `q`: tldraw's `meta` is a
+        // JsonObject, and a grid-in's `choices` is `undefined`, which is not a JSON
+        // value. Omit the property entirely rather than storing an undefined.
+        const meta: JsonObject = q
+          ? {
+              lesson: true,
+              q: { id: q.id, format: q.format, ...(q.choices ? { choices: q.choices } : {}) },
+            }
+          : { lesson: true }
         editor.createShape({
           id: createShapeId(blockId(page.pageIndex, pb.blockIndex)),
           type: 'image',
@@ -112,6 +139,7 @@ export async function loadLesson(
           y: pb.y,
           isLocked: true, // lesson content shouldn't be nudged by stray clicks
           props: { assetId, w: pb.w, h: pb.h },
+          meta,
         })
       }
     }
@@ -122,5 +150,5 @@ export async function loadLesson(
     editor.setCurrentPage(PageRecordType.createId(pageId(placed[0].pageIndex)))
   }
 
-  return { pages: placed.length, blocks: total }
+  return { pages: placed.length, blocks: total, keys: questionKeysFromDoc(doc) }
 }

@@ -1,0 +1,142 @@
+/* Student-facing answer boxes anchored beneath answerable problems on the
+   canvas. All class names are prefixed `qa-` to avoid collisions. Kept small
+   and unobtrusive — this sits directly on the whiteboard, in front of shapes.
+   Correct/incorrect colors match .qs-correct / .qs-incorrect in stats.css. */
+
+.qa-layer {
+  z-index: 300;
+}
+
+.qa-box {
+  pointer-events: auto;
+  position: absolute;
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid #e2e8f0;
+  border-radius: 0.55rem;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.14);
+  padding: 0.4rem 0.55rem;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+.qa-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.qa-choices {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.qa-choice {
+  appearance: none;
+  cursor: pointer;
+  border: 1px solid #e2e8f0;
+  background: white;
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 0.4rem;
+  line-height: 1;
+}
+
+.qa-choice:hover {
+  background: #f8fafc;
+}
+
+.qa-choice.qa-selected {
+  border-color: var(--brand);
+  background: #eff6ff;
+  color: var(--brand-dark);
+}
+
+.qa-choice.qa-selected.qa-correct {
+  border-color: #16a34a;
+  background: #ecfdf5;
+  color: #16a34a;
+}
+
+.qa-choice.qa-selected.qa-incorrect {
+  border-color: #dc2626;
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.qa-grid-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.qa-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.85rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.4rem;
+  outline: none;
+}
+
+.qa-input:focus {
+  border-color: var(--brand);
+}
+
+.qa-submit-btn {
+  appearance: none;
+  cursor: pointer;
+  border: 1px solid var(--brand);
+  background: var(--brand);
+  color: white;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.32rem 0.6rem;
+  border-radius: 0.4rem;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.qa-submit-btn:hover {
+  background: var(--brand-dark);
+  border-color: var(--brand-dark);
+}
+
+.qa-status {
+  flex: 0 0 auto;
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.qa-status.qa-neutral {
+  color: var(--muted);
+  background: #f1f5f9;
+}
+
+.qa-status.qa-correct {
+  color: #16a34a;
+  background: #ecfdf5;
+}
+
+.qa-status.qa-incorrect {
+  color: #dc2626;
+  background: #fef2f2;
+}
+
+.qa-revealed-row {
+  margin-top: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.qa-revealed-row strong {
+  color: var(--ink);
+}

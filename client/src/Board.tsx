@@ -26,6 +26,9 @@ import { Calculator } from './Calculator'
 import { Timer, type TimerWireState } from './Timer'
 import { loadLesson } from './lesson/load'
 import { exportBoardToPdf } from './exportPdf'
+import { makeAnswerOverlay } from './quiz/AnswerOverlay'
+import { StatsPanel } from './quiz/StatsPanel'
+import type { QuestionKey, QuizStats } from '../../shared/quiz.ts'
 
 type ClassMode = 'small' | 'large'
 
@@ -221,6 +224,12 @@ function BoardCanvas({
   const [timerOpen, setTimerOpen] = useState(false)
   const lastTimerState = useRef<TimerWireState | null>(null)
   const lastTimerPos = useRef<{ x: number; y: number } | null>(null)
+  // Answer stats (host only): the panel toggle, the latest stats seen on the wire
+  // (so a freshly opened panel starts populated), and the answer keys from the
+  // loaded lesson — kept so we can re-upload them if the control socket reconnects.
+  const [statsOpen, setStatsOpen] = useState(false)
+  const lastStats = useRef<QuizStats | null>(null)
+  const lessonKeys = useRef<QuestionKey[]>([])
   // Live-toggleable follow controllers for camera + page.
   const cameraCtl = useRef<FollowController | null>(null)
   const pageCtl = useRef<FollowController | null>(null)
@@ -288,6 +297,28 @@ function BoardCanvas({
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [isHost])
+
+  // Answer stats stream to the host only. Cached so opening the panel later (or
+  // reopening it) starts from the current numbers rather than an empty table.
+  useEffect(() => {
+    if (!isHost) return
+    return channel.on('quiz-stats', (m) => {
+      lastStats.current = m.stats as QuizStats
+    })
+  }, [channel, isHost])
+
+  // The server holds the answer keys in the room, which is dropped ~30s after the
+  // last person leaves (and on a server restart). The control socket reconnects
+  // silently, so re-upload the loaded lesson's keys whenever it (re)opens —
+  // otherwise a blip mid-class would leave every submission ungraded.
+  useEffect(() => {
+    if (!isHost) return
+    return channel.on('open', () => {
+      if (lessonKeys.current.length > 0) {
+        channel.send({ type: 'quiz-key', questions: lessonKeys.current })
+      }
+    })
+  }, [channel, isHost])
 
   // Large-class students can't draw until the tutor grants their userId.
   useEffect(() => {
@@ -407,7 +438,14 @@ function BoardCanvas({
       const result = await loadLesson(ed, roomId, raw, (done, total) =>
         setLessonStatus(`Rendering ${done}/${total}…`),
       )
-      setLessonStatus(`Loaded ${result.pages} page${result.pages === 1 ? '' : 's'}`)
+      // Answer keys go straight to the server and never touch the synced document.
+      lessonKeys.current = result.keys
+      channel.send({ type: 'quiz-key', questions: result.keys })
+      const nq = result.keys.length
+      setLessonStatus(
+        `Loaded ${result.pages} page${result.pages === 1 ? '' : 's'}` +
+          (nq > 0 ? `, ${nq} question${nq === 1 ? '' : 's'}` : ''),
+      )
       setTimeout(() => setLessonStatus(null), 2500)
     } catch (err) {
       setLessonStatus(`Couldn't load: ${err instanceof Error ? err.message : String(err)}`)
@@ -467,6 +505,19 @@ function BoardCanvas({
     [grantedAtom, toggleGrant],
   )
 
+  // Students get answer inputs anchored under each answerable problem. Built once
+  // per identity: tldraw remounts the slot whenever this component's identity
+  // changes, which would drop whatever a student was mid-way through typing.
+  const AnswerOverlay = useMemo(
+    () => (isHost ? null : makeAnswerOverlay({ channel, roomId, userId, displayName })),
+    [isHost, channel, roomId, displayName],
+  )
+
+  // How many students are connected, straight from tldraw presence (collaborators
+  // excludes self, so on the host this is exactly the class). Gives the stats panel
+  // its "3 / 5 answered" denominator without any new server-side identity tracking.
+  const rosterSize = useValue('roster size', () => editor?.getCollaborators().length ?? 0, [editor])
+
   // Hide editing UI from students per their state; the host gets custom pieces.
   //  - Toolbar (draw tools + image upload): students only when they may write.
   //  - PageMenu (create/switch pages): students only while roaming under free reign.
@@ -479,8 +530,9 @@ function BoardCanvas({
     const c: TLComponents = {}
     if (!canWrite) c.Toolbar = null
     if (!freeReign) c.PageMenu = null
+    if (AnswerOverlay) c.InFrontOfTheCanvas = AnswerOverlay
     return c
-  }, [isHost, isLarge, canWrite, freeReign, HostMainMenu, HostMenuPanel, HostSharePanel])
+  }, [isHost, isLarge, canWrite, freeReign, AnswerOverlay, HostMainMenu, HostMenuPanel, HostSharePanel])
 
   if (store.status === 'loading') {
     return <div className="board-status">Connecting to the board…</div>
@@ -517,6 +569,9 @@ function BoardCanvas({
           >
             {freeReign ? '🔓 Free reign: On' : '🔒 Free reign: Off'}
           </button>
+          <button className="dock-btn" onClick={() => setStatsOpen((v) => !v)}>
+            {statsOpen ? 'Hide answers' : '📊 Answers'}
+          </button>
           <button className="dock-btn" onClick={() => toggleTimer(!timerOpen)}>
             {timerOpen ? 'Hide timer' : '⏱ Timer'}
           </button>
@@ -540,6 +595,16 @@ function BoardCanvas({
             {personalCalcOpen ? 'Hide calculator' : '🧮 My calculator'}
           </button>
         </div>
+      )}
+
+      {/* Live answer statistics, tutor-only. Guests never receive quiz-stats. */}
+      {isHost && statsOpen && (
+        <StatsPanel
+          channel={channel}
+          initialStats={lastStats.current}
+          rosterSize={rosterSize}
+          onHide={() => setStatsOpen(false)}
+        />
       )}
 
       {/* Timer widget: host always when open; students follow. */}

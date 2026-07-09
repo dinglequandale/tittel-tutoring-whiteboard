@@ -23,6 +23,24 @@ function open(url) {
     ws.once('error', reject)
   })
 }
+
+// Opens a socket AND starts collecting messages in the same tick it is created.
+//
+// Attaching `.on('message')` after `await open(url)` is racy: the HTTP upgrade
+// response and the server's first frame (e.g. the quiz-stats snapshot pushed to a
+// connecting host) can arrive in a single TCP segment, so `ws` emits 'open' and
+// then 'message' within the same tick — before the await continuation has
+// subscribed. The message is then lost and the assertion fails intermittently.
+// Every join-time replay assertion below must use this instead of `open`.
+function openWithInbox(url) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url)
+    const inbox = []
+    ws.on('message', (d) => inbox.push(JSON.parse(d.toString())))
+    ws.once('open', () => resolve({ ws, inbox }))
+    ws.once('error', reject)
+  })
+}
 function nextMessage(ws, timeout = 3000) {
   return new Promise((resolve) => {
     const t = setTimeout(() => resolve(null), timeout)
@@ -104,9 +122,7 @@ await wait(200)
 check('student cannot drive the calculator (ignored)', hostGotCalc === false)
 
 // 5 (late join): a student joining now gets camera + open calculator + its state
-const lateGuest = await open(`${WS}/control/${ROOM}?role=guest`)
-const collected = []
-lateGuest.on('message', (d) => collected.push(JSON.parse(d.toString())))
+const { ws: lateGuest, inbox: collected } = await openWithInbox(`${WS}/control/${ROOM}?role=guest`)
 await wait(400)
 check(
   'late student snaps to last camera on join',
@@ -142,9 +158,7 @@ check(
   !collected.slice(beforeGeom).some((m) => m.action === 'geom' && m.geom?.w === 1),
 )
 // a late student snaps to the last geometry on join
-const geomGuest = await open(`${WS}/control/${ROOM}?role=guest`)
-const geomJoin = []
-geomGuest.on('message', (d) => geomJoin.push(JSON.parse(d.toString())))
+const { ws: geomGuest, inbox: geomJoin } = await openWithInbox(`${WS}/control/${ROOM}?role=guest`)
 await wait(300)
 check(
   'late student receives calculator geometry on join',
@@ -186,9 +200,7 @@ check(
 // 9: a late student is told the current edit-access setting on join ----------
 host.send(JSON.stringify({ type: 'calc-access', allow: true }))
 await wait(100)
-const newGuest = await open(`${WS}/control/${ROOM}?role=guest`)
-const joinMsgs = []
-newGuest.on('message', (d) => joinMsgs.push(JSON.parse(d.toString())))
+const { ws: newGuest, inbox: joinMsgs } = await openWithInbox(`${WS}/control/${ROOM}?role=guest`)
 await wait(300)
 check('late student receives current edit-access on join', joinMsgs.some((m) => m.type === 'calc-access' && m.allow === true))
 
@@ -212,9 +224,7 @@ check('late student receives current edit-access on join', joinMsgs.some((m) => 
     !!gotGrant && JSON.parse(gotGrant).type === 'access' && JSON.parse(gotGrant).userId === 'stu-1' && JSON.parse(gotGrant).allow === true,
   )
   // a late joiner is told the mode + who already has write access
-  const late = await open(`${WS}/control/${m}?role=guest`)
-  const lateMsgs = []
-  late.on('message', (d) => lateMsgs.push(JSON.parse(d.toString())))
+  const { ws: late, inbox: lateMsgs } = await openWithInbox(`${WS}/control/${m}?role=guest`)
   await wait(300)
   check('late student receives current mode on join', lateMsgs.some((x) => x.type === 'mode' && x.mode === 'large'))
   check('late student receives existing grants on join', lateMsgs.some((x) => x.type === 'access' && x.userId === 'stu-1' && x.allow === true))
@@ -239,9 +249,7 @@ check('late student receives current edit-access on join', joinMsgs.some((m) => 
   await wait(150)
   check('student receives free-reign on', frMsgs.some((x) => x.type === 'free-reign' && x.on === true))
   // late joiner is told free reign is currently on
-  const late = await open(`${WS}/control/${r}?role=guest`)
-  const lateFr = []
-  late.on('message', (d) => lateFr.push(JSON.parse(d.toString())))
+  const { ws: late, inbox: lateFr } = await openWithInbox(`${WS}/control/${r}?role=guest`)
   await wait(300)
   check('late student receives current free-reign on join', lateFr.some((x) => x.type === 'free-reign' && x.on === true))
   // student cannot drive free reign
@@ -257,14 +265,10 @@ check('late student receives current edit-access on join', joinMsgs.some((m) => 
 {
   const MAX_ANSWER_LEN = 32
   const r = `quiz-${Math.random().toString(36).slice(2, 8)}`
-  const h = await open(`${WS}/control/${r}?role=host`)
-  const g = await open(`${WS}/control/${r}?role=guest`)
+  const { ws: h, inbox: hostMsgs } = await openWithInbox(`${WS}/control/${r}?role=host`)
+  const { ws: g, inbox: guestMsgs } = await openWithInbox(`${WS}/control/${r}?role=guest`)
   await wait(100)
 
-  const hostMsgs = []
-  h.on('message', (d) => hostMsgs.push(JSON.parse(d.toString())))
-  const guestMsgs = []
-  g.on('message', (d) => guestMsgs.push(JSON.parse(d.toString())))
   const lastStats = () => hostMsgs.filter((m) => m.type === 'quiz-stats').at(-1)
 
   // Host uploads a key: one immediate-reveal MC question, one never-reveal grid-in.
@@ -364,9 +368,7 @@ check('late student receives current edit-access on join', joinMsgs.some((m) => 
   const revealed = guestMsgs.filter((m) => m.type === 'quiz-revealed').at(-1)
   check('guest receives quiz-revealed with keys.q1 === "B"', !!revealed && revealed.keys.q1 === 'B')
 
-  const late = await open(`${WS}/control/${r}?role=guest`)
-  const lateMsgs = []
-  late.on('message', (d) => lateMsgs.push(JSON.parse(d.toString())))
+  const { ws: late, inbox: lateMsgs } = await openWithInbox(`${WS}/control/${r}?role=guest`)
   await wait(300)
   check(
     'late-joining guest also receives quiz-revealed on connect',
@@ -374,9 +376,9 @@ check('late student receives current edit-access on join', joinMsgs.some((m) => 
   )
 
   // A reconnecting host is replayed the current stats so it doesn't lose the panel.
-  const h2 = await open(`${WS}/control/${r}?role=host`)
-  const h2Msgs = []
-  h2.on('message', (d) => h2Msgs.push(JSON.parse(d.toString())))
+  // Must collect from construction: the stats frame can share a TCP segment with
+  // the upgrade response, arriving before a post-await listener would attach.
+  const { ws: h2, inbox: h2Msgs } = await openWithInbox(`${WS}/control/${r}?role=host`)
   await wait(300)
   check('reconnecting host receives quiz-stats on connect', h2Msgs.some((m) => m.type === 'quiz-stats'))
 
@@ -395,11 +397,9 @@ check('late student receives current edit-access on join', joinMsgs.some((m) => 
 // the seenAt timestamps, which would silently report elapsedMs: 0 for the tail.
 {
   const r = `seen-${Math.random().toString(36).slice(2, 8)}`
-  const h = await open(`${WS}/control/${r}?role=host`)
+  const { ws: h, inbox: hostMsgs } = await openWithInbox(`${WS}/control/${r}?role=host`)
   const g = await open(`${WS}/control/${r}?role=guest`)
   await wait(100)
-  const hostMsgs = []
-  h.on('message', (d) => hostMsgs.push(JSON.parse(d.toString())))
 
   const N = 16 // > GUEST_MSG_RATE (10)
   const questions = Array.from({ length: N }, (_, i) => ({

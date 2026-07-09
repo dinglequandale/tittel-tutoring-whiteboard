@@ -5,6 +5,7 @@
 // Run with:  npx tsx test/lesson.mjs
 import { parseLessonDoc, LessonParseError, LESSON_DEFAULTS } from '../client/src/lesson/schema.ts'
 import { computeLayout, blockId, pageId } from '../client/src/lesson/layout.ts'
+import { questionMetaFor, questionKeysFromDoc } from '../client/src/lesson/keys.ts'
 
 let failures = 0
 function check(name, ok) {
@@ -147,6 +148,52 @@ check('measured size carried into placement', placed[1].blocks[0].h === 400)
 // missing measure → placeholder, still well-defined
 const placedMissing = computeLayout(doc2, () => undefined)
 check('missing measure falls back to placeholder height', placedMissing[0].blocks[0].h === 40)
+
+// ---- keys: questionMetaFor (synced, student-visible; must never leak a key) ----
+check(
+  'questionMetaFor on a block with no answer is undefined',
+  questionMetaFor(doc2.pages[0].blocks[0], 0, 0) === undefined,
+)
+
+const keysDoc = parseLessonDoc({
+  pages: [
+    { blocks: [{ content: 'p0b0', answer: { format: 'grid', key: '1' } }] },
+    {
+      blocks: [
+        { content: 'p1b0' },
+        { content: 'p1b1', kind: 'heading' },
+        { content: 'p1b2', answer: { format: 'choice', key: 'B', accept: ['b'], choices: ['A', 'B', 'C'] } },
+      ],
+    },
+  ],
+})
+const choiceMeta = questionMetaFor(keysDoc.pages[1].blocks[2], 1, 2)
+check(
+  'questionMetaFor on a choice block has the right id/format/choices',
+  choiceMeta.id === 'lesson-1-2' &&
+    choiceMeta.format === 'choice' &&
+    JSON.stringify(choiceMeta.choices) === JSON.stringify(['A', 'B', 'C']),
+)
+check('questionMetaFor choice meta has no key', 'key' in choiceMeta === false)
+check('questionMetaFor choice meta has no accept', 'accept' in choiceMeta === false)
+check('questionMetaFor choice meta has no reveal', 'reveal' in choiceMeta === false)
+
+const gridMeta = questionMetaFor(keysDoc.pages[0].blocks[0], 0, 0)
+check('questionMetaFor on a grid block has choices === undefined', gridMeta.choices === undefined)
+
+// ---- keys: questionKeysFromDoc (host-only; walks page/block order) --------
+const allKeys = questionKeysFromDoc(keysDoc)
+check('questionKeysFromDoc skips non-answerable blocks', allKeys.length === 2)
+check(
+  'questionKeysFromDoc returns answerable blocks in page-then-block order',
+  allKeys[0].id === blockId(0, 0) && allKeys[1].id === blockId(1, 2),
+)
+check('questionKeysFromDoc carries the key', allKeys[1].key === 'B')
+check('questionKeysFromDoc carries accept', JSON.stringify(allKeys[1].accept) === JSON.stringify(['b']))
+check('questionKeysFromDoc carries reveal', allKeys[0].reveal === 'never')
+
+const noAnswerDoc = parseLessonDoc({ pages: [{ blocks: [{ content: 'hi' }, { content: 'bye' }] }] })
+check('questionKeysFromDoc on a doc with zero answerable blocks is []', questionKeysFromDoc(noAnswerDoc).length === 0)
 
 console.log(`\n${failures === 0 ? 'ALL GREEN' : failures + ' FAILURE(S)'}`)
 process.exit(failures === 0 ? 0 : 1)
