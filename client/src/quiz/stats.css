@@ -223,7 +223,8 @@
 
 .qs-footer {
   display: flex;
-  gap: 0.5rem;
+  /* Tightened from 0.5rem now that a third button (Export CSV) shares the row. */
+  gap: 0.35rem;
   padding: 0.5rem 0.65rem;
   border-top: 1px solid #e2e8f0;
   background: #f8fafc;
@@ -236,12 +237,15 @@
   border: 1px solid #e2e8f0;
   background: white;
   color: var(--ink);
-  font-size: 0.8rem;
+  /* Shrunk from 0.8rem/0.6rem padding so three footer buttons still fit the
+     panel width without wrapping ("Answers revealed" is the long pole). */
+  font-size: 0.76rem;
   font-weight: 600;
-  padding: 0.4rem 0.6rem;
+  padding: 0.4rem 0.4rem;
   border-radius: 0.45rem;
   flex: 1;
   white-space: nowrap;
+  text-align: center;
 }
 
 .qs-btn:hover {

@@ -55,6 +55,8 @@ export interface Room {
   quizSubs: Map<string, Map<string, Submission>>
   /** Whether the tutor has pressed "Reveal answers" for the current key set. */
   quizRevealed: boolean
+  /** qids currently accepting answers. Gates both `quiz-answer` and `quiz-seen`. */
+  quizOpen: Set<string>
   closeTimer: ReturnType<typeof setTimeout> | null
 }
 
@@ -91,6 +93,7 @@ export function getOrCreateRoom(id: string): Room {
     quizSeen: new Map(),
     quizSubs: new Map(),
     quizRevealed: false,
+    quizOpen: new Set(),
     closeTimer: null,
     // Set just below; typed non-null for ergonomic access.
     socketRoom: undefined as unknown as TLSocketRoom<any, void>,

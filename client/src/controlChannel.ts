@@ -11,9 +11,10 @@ type Handler = (msg: any) => void
 // feature that listens for them has mounted — so we cache the last one and
 // deliver it on subscribe. (Event-style messages like 'calc' open/close aren't
 // cached; they're handled in sequence.)
-// 'quiz-stats' is pushed to a host the moment it connects, and 'quiz-revealed' is
-// replayed to a guest on join — both can land before the stats panel / answer
-// overlay has mounted, so the latest value must survive until they subscribe.
+// 'quiz-stats' is pushed to a host the moment it connects, and 'quiz-revealed' and
+// 'quiz-open' are replayed to a guest on join — all three can land before the
+// stats panel / answer overlay has mounted, so the latest value must survive
+// until they subscribe.
 const STICKY_TYPES = new Set([
   'camera',
   'page',
@@ -22,6 +23,7 @@ const STICKY_TYPES = new Set([
   'calc-access',
   'quiz-stats',
   'quiz-revealed',
+  'quiz-open',
 ])
 
 export class ControlChannel {

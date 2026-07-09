@@ -31,6 +31,7 @@ import {
   type QuestionMeta,
   type QuizAckMsg,
   type QuizAnswerMsg,
+  type QuizOpenMsg,
   type QuizRevealedMsg,
   type QuizSeenMsg,
 } from '../../../shared/quiz.ts'
@@ -83,8 +84,9 @@ export function makeAnswerOverlay(opts: {
   roomId: string
   userId: string
   displayName: string
+  isHost: boolean
 }): ComponentType {
-  const { channel, roomId, userId, displayName } = opts
+  const { channel, roomId, userId, displayName, isHost } = opts
 
   return function AnswerOverlay() {
     const editor = useEditor()
@@ -123,6 +125,10 @@ export function makeAnswerOverlay(opts: {
     // session"; `correct` is only set when the server actually revealed it.
     const [acks, setAcks] = useState<Record<string, AckState>>({})
     const [revealedKeys, setRevealedKeys] = useState<Record<string, string>>({})
+    // Which questions are currently accepting answers. The tutor drives this; the
+    // server is authoritative and echoes the filtered set back to everyone. A
+    // student sees no input at all for a question that isn't open.
+    const [openQids, setOpenQids] = useState<Set<string>>(() => new Set())
 
     // Which question ids we've already told the server we've "seen" this
     // session — never re-send, and always batch rather than one-per-question.
@@ -146,9 +152,27 @@ export function makeAnswerOverlay(opts: {
       channel.send(msg)
     }
 
-    // Batch-report newly visible questions once per page landing.
     useEffect(() => {
-      const fresh = questions.map((v) => v.q.id).filter((id) => !seenRef.current.has(id))
+      return channel.on('quiz-open', (msg: QuizOpenMsg) => setOpenQids(new Set(msg.qids)))
+    }, [])
+
+    /** Host only: flip a single question open/closed, sending the whole new set. */
+    function toggleOpen(qid: string) {
+      const next = new Set(openQids)
+      if (next.has(qid)) next.delete(qid)
+      else next.add(qid)
+      setOpenQids(next) // optimistic; the server echoes the authoritative set back
+      channel.send({ type: 'quiz-open', qids: [...next] })
+    }
+
+    // Batch-report newly *open* questions on this page. Timing starts when the
+    // tutor opens a question, not when the page was rendered — which is the
+    // elapsed number a tutor actually wants for a timed practice problem.
+    useEffect(() => {
+      if (isHost) return
+      const fresh = questions
+        .map((v) => v.q.id)
+        .filter((id) => openQids.has(id) && !seenRef.current.has(id))
       if (fresh.length === 0) return
       // Only mark the ids we actually send. Marking the truncated tail as "seen"
       // would strand it: never sent, never retried, and so recorded server-side
@@ -226,11 +250,30 @@ export function makeAnswerOverlay(opts: {
           const revealed = revealedKeys[q.id]
           const answered = ack !== undefined
           const known = ack !== undefined && 'correct' in ack
+          const isOpen = openQids.has(q.id)
+
+          // A closed question is invisible to students — no input, no placeholder.
+          if (!isHost && !isOpen) return null
 
           const boxStyle: CSSProperties = {
             left: bounds.x,
             top: bounds.y + bounds.h + 16,
             width: Math.min(bounds.w, 720),
+          }
+
+          // The tutor doesn't answer; they decide when answering opens.
+          if (isHost) {
+            return (
+              <div key={shapeId} className="qa-box qa-gate" style={boxStyle} {...shield}>
+                <button
+                  type="button"
+                  className={`qa-gate-btn${isOpen ? ' qa-gate-open' : ''}`}
+                  onClick={() => toggleOpen(q.id)}
+                >
+                  {isOpen ? '■ Close answering' : '▶ Open answering'}
+                </button>
+              </div>
+            )
           }
 
           return (

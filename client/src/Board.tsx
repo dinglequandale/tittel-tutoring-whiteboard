@@ -230,6 +230,12 @@ function BoardCanvas({
   const [statsOpen, setStatsOpen] = useState(false)
   const lastStats = useRef<QuizStats | null>(null)
   const lessonKeys = useRef<QuestionKey[]>([])
+  // Questions currently accepting answers (server-authoritative, echoed to everyone).
+  // Any question being open means "practice mode": students stay pinned to the
+  // tutor's page and camera, but get their own calculator — the calculator half of
+  // free reign, without the roaming half.
+  const [openQids, setOpenQids] = useState<Set<string>>(() => new Set())
+  const practiceOpen = openQids.size > 0
   // Live-toggleable follow controllers for camera + page.
   const cameraCtl = useRef<FollowController | null>(null)
   const pageCtl = useRef<FollowController | null>(null)
@@ -306,6 +312,12 @@ function BoardCanvas({
       lastStats.current = m.stats as QuizStats
     })
   }, [channel, isHost])
+
+  // Both roles track the open-question set: students to know whether to show an
+  // input, the tutor to drive the dock's open/close toggle and the calculator swap.
+  useEffect(() => {
+    return channel.on('quiz-open', (m) => setOpenQids(new Set(m.qids as string[])))
+  }, [channel])
 
   // The server holds the answer keys in the room, which is dropped ~30s after the
   // last person leaves (and on a server restart). The control socket reconnects
@@ -505,32 +517,64 @@ function BoardCanvas({
     [grantedAtom, toggleGrant],
   )
 
-  // Students get answer inputs anchored under each answerable problem. Built once
-  // per identity: tldraw remounts the slot whenever this component's identity
-  // changes, which would drop whatever a student was mid-way through typing.
+  // Anchored under each answerable problem: an input for students, an open/close
+  // control for the tutor. Built once per identity — tldraw remounts the slot
+  // whenever this component's identity changes, which would drop whatever a
+  // student was mid-way through typing.
   const AnswerOverlay = useMemo(
-    () => (isHost ? null : makeAnswerOverlay({ channel, roomId, userId, displayName })),
+    () => makeAnswerOverlay({ channel, roomId, userId, displayName, isHost }),
     [isHost, channel, roomId, displayName],
   )
+
+  // A student drives their own calculator whenever they're working independently:
+  // either roaming under free reign, or answering an open question. In both cases
+  // the tutor's shared mirror is hidden from them and a personal one takes over.
+  // Practice mode deliberately stops there — camera and page follow stay on.
+  const studentSoloCalc = freeReign || practiceOpen
 
   // How many students are connected, straight from tldraw presence (collaborators
   // excludes self, so on the host this is exactly the class). Gives the stats panel
   // its "3 / 5 answered" denominator without any new server-side identity tracking.
   const rosterSize = useValue('roster size', () => editor?.getCollaborators().length ?? 0, [editor])
 
+  // Every answerable question on the page the tutor is looking at, so the dock can
+  // open or close a whole page at once (an Independent Work page has eight).
+  const pageQids = useValue<string[]>(
+    'page question ids',
+    () =>
+      editor
+        ? editor
+            .getCurrentPageShapes()
+            .map((s) => (s.meta as { q?: { id?: string } }).q?.id)
+            .filter((id): id is string => !!id)
+        : [],
+    [editor],
+  )
+  const anyOpenOnPage = pageQids.some((id) => openQids.has(id))
+
+  /** Open every question on this page, or — if any is open — close answering entirely. */
+  function togglePageAnswering() {
+    const qids = anyOpenOnPage ? [] : pageQids
+    setOpenQids(new Set(qids)) // optimistic; the server echoes the filtered set back
+    channel.send({ type: 'quiz-open', qids })
+  }
+
   // Hide editing UI from students per their state; the host gets custom pieces.
   //  - Toolbar (draw tools + image upload): students only when they may write.
   //  - PageMenu (create/switch pages): students only while roaming under free reign.
   const components = useMemo<TLComponents>(() => {
     if (isHost) {
-      const c: TLComponents = { MainMenu: HostMainMenu, MenuPanel: HostMenuPanel }
+      const c: TLComponents = {
+        MainMenu: HostMainMenu,
+        MenuPanel: HostMenuPanel,
+        InFrontOfTheCanvas: AnswerOverlay,
+      }
       if (isLarge) c.SharePanel = HostSharePanel
       return c
     }
-    const c: TLComponents = {}
+    const c: TLComponents = { InFrontOfTheCanvas: AnswerOverlay }
     if (!canWrite) c.Toolbar = null
     if (!freeReign) c.PageMenu = null
-    if (AnswerOverlay) c.InFrontOfTheCanvas = AnswerOverlay
     return c
   }, [isHost, isLarge, canWrite, freeReign, AnswerOverlay, HostMainMenu, HostMenuPanel, HostSharePanel])
 
@@ -569,6 +613,15 @@ function BoardCanvas({
           >
             {freeReign ? '🔓 Free reign: On' : '🔒 Free reign: Off'}
           </button>
+          {pageQids.length > 0 && (
+            <button
+              className={`dock-btn ${anyOpenOnPage ? 'primary' : ''}`}
+              title="Let students answer this page's questions. They stay on your page, but get their own calculator."
+              onClick={togglePageAnswering}
+            >
+              {anyOpenOnPage ? '■ Stop answering' : `▶ Answer page (${pageQids.length})`}
+            </button>
+          )}
           <button className="dock-btn" onClick={() => setStatsOpen((v) => !v)}>
             {statsOpen ? 'Hide answers' : '📊 Answers'}
           </button>
@@ -588,8 +641,9 @@ function BoardCanvas({
         </div>
       )}
 
-      {/* A roaming student's own dock: just their private calculator toggle. */}
-      {!isHost && freeReign && (
+      {/* A student's own dock: their private calculator toggle. Shown whenever they
+          have a personal calculator — while roaming, or while answering a question. */}
+      {!isHost && studentSoloCalc && (
         <div className="tutor-dock">
           <button className="dock-btn" onClick={() => setPersonalCalcOpen((v) => !v)}>
             {personalCalcOpen ? 'Hide calculator' : '🧮 My calculator'}
@@ -619,7 +673,7 @@ function BoardCanvas({
       )}
 
       {/* Shared (tutor-driven) calculator: host always; students only when following. */}
-      {(isHost ? calcOpen : calcOpen && !freeReign) && (
+      {(isHost ? calcOpen : calcOpen && !studentSoloCalc) && (
         <Calculator
           channel={channel}
           isHost={isHost}
@@ -631,8 +685,8 @@ function BoardCanvas({
         />
       )}
 
-      {/* A roaming student's private, non-synced scratch calculator. */}
-      {!isHost && freeReign && personalCalcOpen && (
+      {/* A student's private, non-synced scratch calculator. */}
+      {!isHost && studentSoloCalc && personalCalcOpen && (
         <Calculator channel={channel} isHost={false} personal />
       )}
     </div>

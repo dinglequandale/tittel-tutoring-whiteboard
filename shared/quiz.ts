@@ -83,6 +83,15 @@ export interface QuizKeyMsg { type: 'quiz-key'; questions: QuestionKey[] }
 export interface QuizRevealMsg { type: 'quiz-reveal' }
 export interface QuizResetMsg { type: 'quiz-reset' }
 
+/**
+ * The set of questions currently accepting answers. Sent host -> server as the
+ * COMPLETE new set (idempotent, trivially replayable), and relayed verbatim to
+ * guests. A question not in this set shows no input and rejects submissions.
+ */
+export interface QuizOpenMsg { type: 'quiz-open'; qids: string[] }
+/** Cap on `QuizOpenMsg.qids`, so one frame can't make the server allocate freely. */
+export const MAX_OPEN_QIDS = 500
+
 // guest -> server
 /**
  * Sent once when a student's client renders a page, listing every question that

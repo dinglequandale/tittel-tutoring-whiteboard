@@ -8,7 +8,7 @@ import { nanoid } from 'nanoid'
 import { getOrCreateRoom, getRoom, type ControlClient, type Room } from './rooms.ts'
 import type { QuestionKey, QuizStats, Submission } from '../shared/quiz.ts'
 import { gradeAnswer } from '../shared/grade.ts'
-import { MAX_ANSWER_LEN, GUEST_MSG_RATE, MAX_SEEN_BATCH } from '../shared/quiz.ts'
+import { MAX_ANSWER_LEN, GUEST_MSG_RATE, MAX_SEEN_BATCH, MAX_OPEN_QIDS } from '../shared/quiz.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.PORT) || 5858
@@ -177,9 +177,12 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
       for (const [qid, key] of room.quizKey) keys[qid] = key.key
       safeSend(ws, { type: 'quiz-revealed', keys })
     }
+    safeSend(ws, { type: 'quiz-open', qids: [...room.quizOpen] })
   } else {
-    // A tutor reconnecting mid-class shouldn't lose the stats panel.
+    // A tutor reconnecting mid-class shouldn't lose the stats panel, nor forget
+    // which questions they had opened (that set also drives the calculator swap).
     safeSend(ws, { type: 'quiz-stats', stats: quizStats(room) })
+    safeSend(ws, { type: 'quiz-open', qids: [...room.quizOpen] })
   }
 
   ws.on('message', (data) => {
@@ -277,6 +280,9 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
         for (const qid of Array.from(room.quizSubs.keys())) {
           if (!nextKey.has(qid)) room.quizSubs.delete(qid)
         }
+        for (const qid of Array.from(room.quizOpen)) {
+          if (!nextKey.has(qid)) room.quizOpen.delete(qid)
+        }
         pushQuizStats()
       } else if (msg?.type === 'quiz-reveal') {
         room.quizRevealed = true
@@ -288,8 +294,28 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
         room.quizSeen.clear()
         room.quizSubs.clear()
         room.quizRevealed = false
+        // quiz-reset clears submissions so a question can be re-run; it does NOT
+        // touch quizOpen — that would silently close questions the tutor still
+        // has open.
         pushQuizStats()
         broadcastToGuests({ type: 'quiz-reset' })
+      } else if (msg?.type === 'quiz-open' && Array.isArray(msg.qids)) {
+        // Tutor gates which questions currently accept answers. Replace the set
+        // wholesale, dropping unknown ids and capping the batch, then broadcast
+        // the SERVER's filtered set (not the client's raw input) so everyone
+        // — including the tutor's own other tabs — agrees on what's open.
+        const nextOpen = new Set<string>()
+        for (const qid of (msg.qids as unknown[]).slice(0, MAX_OPEN_QIDS)) {
+          if (typeof qid === 'string' && room.quizKey.has(qid)) nextOpen.add(qid)
+        }
+        room.quizOpen = nextOpen
+        // Echoed to hosts as well as guests. The tutor's UI reads the open set from
+        // the wire in two places — the per-question control on the canvas and the
+        // dock's whole-page toggle — and those must not drift apart. The server's
+        // set is the single source of truth for both roles.
+        const openMsg = { type: 'quiz-open', qids: [...room.quizOpen] }
+        broadcastToGuests(openMsg)
+        sendToHosts(openMsg)
       }
     } else if (
       msg?.type === 'calc' &&
@@ -307,7 +333,10 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
       // One batched message per page render (see MAX_SEEN_BATCH): a page can hold
       // more questions than the per-second rate limit allows as separate messages.
       for (const qid of qids.slice(0, MAX_SEEN_BATCH)) {
-        if (!validQuizId(qid) || !room.quizKey.has(qid)) continue
+        // Only record seenAt for OPEN questions: elapsed time should measure from
+        // when the tutor opened the question, not from whenever the client happened
+        // to render it (which for a gated question could be long before it opens).
+        if (!validQuizId(qid) || !room.quizKey.has(qid) || !room.quizOpen.has(qid)) continue
         let seenMap = room.quizSeen.get(qid)
         if (!seenMap) {
           seenMap = new Map()
@@ -322,6 +351,9 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
       if (!validQuizId(qid) || !validQuizId(userId)) return
       const key = room.quizKey.get(qid)
       if (!key) return
+      // A student must not be able to answer a question the tutor hasn't opened,
+      // even by hand-crafting a websocket frame.
+      if (!room.quizOpen.has(qid)) return
       if (typeof msg.value !== 'string' || msg.value.length > MAX_ANSWER_LEN) return
       const name = clampQuizName(msg.name)
       const correct = gradeAnswer(msg.value, key)

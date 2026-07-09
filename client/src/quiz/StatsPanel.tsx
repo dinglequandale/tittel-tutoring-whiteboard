@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { ControlChannel } from '../controlChannel'
 import type { QuestionStats, QuizStats, Submission } from '../../../shared/quiz.ts'
+import { downloadStatsCsv, formatQid } from './exportStats.ts'
 import './stats.css'
 
 type Pos = { x: number; y: number }
@@ -22,13 +23,6 @@ function clampPos(p: Pos): Pos {
     x: Math.min(Math.max(p.x, 0), Math.max(0, window.innerWidth - PANEL_WIDTH)),
     y: Math.min(Math.max(p.y, 0), window.innerHeight - 60),
   }
-}
-
-/** `lesson-3-4` (page 3, block 4) -> `P3·B4`. Anything else renders as-is. */
-/** `lesson-0-3` -> `P1·B4`. The ids are 0-based; the tutor counts pages from 1. */
-function formatQid(qid: string): string {
-  const m = /^lesson-(\d+)-(\d+)$/.exec(qid)
-  return m ? `P${Number(m[1]) + 1}·B${Number(m[2]) + 1}` : qid
 }
 
 /** ms -> `m:ss`. `null` (no data yet) -> em-dash, never a bogus "0:00". */
@@ -120,6 +114,11 @@ export function StatsPanel({
     channel.send({ type: 'quiz-reset' })
   }
 
+  function handleExport() {
+    if (!stats) return
+    downloadStatsCsv(stats)
+  }
+
   const hasQuestions = !!stats && stats.questions.length > 0
 
   return (
@@ -152,6 +151,9 @@ export function StatsPanel({
       <div className="qs-footer">
         <button className="qs-btn" onClick={handleReset} disabled={!hasQuestions}>
           Reset
+        </button>
+        <button className="qs-btn" onClick={handleExport} disabled={!hasQuestions}>
+          Export CSV
         </button>
         <button
           className="qs-btn primary"

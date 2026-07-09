@@ -24,6 +24,37 @@
   gap: 0.5rem;
 }
 
+/* Tutor-only: the open/close control under each question. Quieter than a student
+   answer box — it's scaffolding for the tutor, not content for the class. */
+.qa-gate {
+  background: rgba(255, 255, 255, 0.9);
+  padding: 0.25rem;
+}
+
+.qa-gate-btn {
+  width: 100%;
+  cursor: pointer;
+  border: 1px dashed #cbd5e1;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: var(--muted, #64748b);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.35rem 0.5rem;
+}
+
+.qa-gate-btn:hover {
+  border-color: var(--brand, #2563eb);
+  color: var(--brand, #2563eb);
+}
+
+.qa-gate-btn.qa-gate-open {
+  border-style: solid;
+  border-color: #16a34a;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
 .qa-choices {
   display: flex;
   gap: 0.3rem;

@@ -290,6 +290,11 @@ check('late student receives current edit-access on join', joinMsgs.some((m) => 
       statsAfterKey.stats.questions.every((q) => q.answered === 0),
   )
 
+  // Open both questions so the rest of this section's answers are accepted
+  // (see section 14 for dedicated quiz-open gating coverage).
+  h.send(JSON.stringify({ type: 'quiz-open', qids: ['q1', 'q2'] }))
+  await wait(100)
+
   // Guest sees q1, waits, then answers correctly. Reveal is immediate -> ack carries correct.
   g.send(JSON.stringify({ type: 'quiz-seen', userId: 'stu-a', qids: ['q1', 'q2'] }))
   await wait(50)
@@ -411,6 +416,10 @@ check('late student receives current edit-access on join', joinMsgs.some((m) => 
   h.send(JSON.stringify({ type: 'quiz-key', questions }))
   await wait(150)
 
+  // Open every question on the page so quiz-seen/quiz-answer are accepted below.
+  h.send(JSON.stringify({ type: 'quiz-open', qids: questions.map((q) => q.id) }))
+  await wait(100)
+
   // One batched message covering the whole page, as a real client would send.
   g.send(JSON.stringify({ type: 'quiz-seen', userId: 'stu-z', qids: questions.map((q) => q.id) }))
   await wait(120)
@@ -429,6 +438,145 @@ check('late student receives current edit-access on join', joinMsgs.some((m) => 
     !!lastQ && lastQ.students[0].elapsedMs > 0,
   )
   for (const ws of [h, g]) ws.close()
+}
+
+// 14: quiz-open gating (tutor must explicitly open a question before it accepts
+// answers, and closing it again must reject subsequent answers) --------------
+{
+  const r = `open-${Math.random().toString(36).slice(2, 8)}`
+  const { ws: h, inbox: hostMsgs } = await openWithInbox(`${WS}/control/${r}?role=host`)
+  const { ws: g, inbox: guestMsgs } = await openWithInbox(`${WS}/control/${r}?role=guest`)
+  await wait(100)
+
+  const lastStats = () => hostMsgs.filter((m) => m.type === 'quiz-stats').at(-1)
+  const q = (id) => lastStats()?.stats.questions.find((x) => x.qid === id)
+
+  h.send(
+    JSON.stringify({
+      type: 'quiz-key',
+      questions: [
+        { id: 'q1', format: 'choice', key: 'B', reveal: 'immediate' },
+        { id: 'q2', format: 'grid', key: '2/3', reveal: 'never' },
+      ],
+    }),
+  )
+  await wait(150)
+
+  // Nothing is open yet: an answer to q1 is rejected outright.
+  const beforeGuest = guestMsgs.length
+  g.send(JSON.stringify({ type: 'quiz-answer', userId: 'stu-a', name: 'Alice', qid: 'q1', value: 'B' }))
+  await wait(150)
+  check('answer to unopened question produces no ack', guestMsgs.length === beforeGuest)
+  check('answer to unopened question does not count in stats', !!q('q1') && q('q1').answered === 0)
+
+  // Host opens q1 only. Guest is told exactly ['q1'].
+  const openMsg = nextMessage(g)
+  h.send(JSON.stringify({ type: 'quiz-open', qids: ['q1'] }))
+  const gotOpen = JSON.parse(await openMsg)
+  check(
+    'guest receives quiz-open listing exactly [q1]',
+    gotOpen.type === 'quiz-open' && JSON.stringify(gotOpen.qids) === JSON.stringify(['q1']),
+  )
+
+  // Now q1 accepts an answer and acks (immediate reveal).
+  g.send(JSON.stringify({ type: 'quiz-answer', userId: 'stu-a', name: 'Alice', qid: 'q1', value: 'B' }))
+  await wait(150)
+  const ack1 = guestMsgs.filter((m) => m.type === 'quiz-ack' && m.qid === 'q1').at(-1)
+  check('open question accepts answer and acks correct === true', !!ack1 && ack1.correct === true)
+  check('host stats show q1 answered:1', !!q('q1') && q('q1').answered === 1)
+
+  // q2 is still closed: rejected.
+  const beforeQ2Guest = guestMsgs.length
+  g.send(JSON.stringify({ type: 'quiz-answer', userId: 'stu-a', name: 'Alice', qid: 'q2', value: '2/3' }))
+  await wait(150)
+  check('closed question still rejects answers', guestMsgs.length === beforeQ2Guest)
+  check('closed question stats unchanged', !!q('q2') && q('q2').answered === 0)
+
+  // Host opens q1, q2, and an unknown id — server filters the unknown one out.
+  const openMsg2 = nextMessage(g)
+  h.send(JSON.stringify({ type: 'quiz-open', qids: ['q1', 'q2', 'bogus-id'] }))
+  const gotOpen2 = JSON.parse(await openMsg2)
+  check(
+    'unknown qid filtered out of broadcast quiz-open',
+    gotOpen2.type === 'quiz-open' && new Set(gotOpen2.qids).size === 2 && gotOpen2.qids.includes('q1') && gotOpen2.qids.includes('q2'),
+  )
+
+  // A late-joining guest receives the current open set on connect.
+  const { ws: late, inbox: lateMsgs } = await openWithInbox(`${WS}/control/${r}?role=guest`)
+  await wait(300)
+  const lateOpen = lateMsgs.find((m) => m.type === 'quiz-open')
+  check(
+    'late-joining guest receives current quiz-open set',
+    !!lateOpen && new Set(lateOpen.qids).size === 2 && lateOpen.qids.includes('q1') && lateOpen.qids.includes('q2'),
+  )
+
+  // A guest sending quiz-open is ignored: close q2 via the host, then have the
+  // guest try to "reopen" it — the open set must stay unchanged (q2 still closed).
+  h.send(JSON.stringify({ type: 'quiz-open', qids: ['q1'] }))
+  await wait(150)
+  g.send(JSON.stringify({ type: 'quiz-open', qids: ['q1', 'q2'] }))
+  await wait(150)
+  const beforeIgnoredGuest = guestMsgs.length
+  g.send(JSON.stringify({ type: 'quiz-answer', userId: 'stu-a', name: 'Alice', qid: 'q2', value: '2/3' }))
+  await wait(150)
+  check('guest-sent quiz-open is ignored (q2 stays closed)', guestMsgs.length === beforeIgnoredGuest)
+
+  // Host closes everything: subsequent answers are rejected again.
+  h.send(JSON.stringify({ type: 'quiz-open', qids: [] }))
+  await wait(150)
+  const beforeClosedAllGuest = guestMsgs.length
+  g.send(JSON.stringify({ type: 'quiz-answer', userId: 'stu-a', name: 'Alice', qid: 'q1', value: 'B' }))
+  await wait(150)
+  check('closing everything rejects subsequent answers', guestMsgs.length === beforeClosedAllGuest)
+
+  // quiz-seen only sticks for OPEN questions: open q1, mark seen, wait, submit
+  // -> elapsedMs > 0 (measured from the seen timestamp while open).
+  h.send(JSON.stringify({ type: 'quiz-open', qids: ['q1'] }))
+  await wait(100)
+  g.send(JSON.stringify({ type: 'quiz-seen', userId: 'stu-timing', qids: ['q1'] }))
+  await wait(80)
+  g.send(JSON.stringify({ type: 'quiz-answer', userId: 'stu-timing', name: 'Tim', qid: 'q1', value: 'B' }))
+  await wait(150)
+  const q1Timing = q('q1')
+  const timingSub = q1Timing && q1Timing.students.find((s) => s.userId === 'stu-timing')
+  check('quiz-seen while open records a real elapsedMs', !!timingSub && timingSub.elapsedMs > 0)
+
+  // quiz-seen sent while CLOSED does not stick: send seen for q2 while closed,
+  // then open q2 and immediately submit — accepted, and elapsedMs is a small
+  // number measured from the open (not the earlier closed-time send).
+  g.send(JSON.stringify({ type: 'quiz-seen', userId: 'stu-timing2', qids: ['q2'] }))
+  await wait(80)
+  h.send(JSON.stringify({ type: 'quiz-open', qids: ['q1', 'q2'] }))
+  const beforeQ2SubmitGuest = guestMsgs.length
+  g.send(JSON.stringify({ type: 'quiz-answer', userId: 'stu-timing2', name: 'Tia', qid: 'q2', value: '2/3' }))
+  await wait(150)
+  check('answer accepted after opening despite earlier closed-time quiz-seen', guestMsgs.length > beforeQ2SubmitGuest)
+  const q2Timing = q('q2')
+  const timingSub2 = q2Timing && q2Timing.students.find((s) => s.userId === 'stu-timing2')
+  check(
+    'closed-time quiz-seen did not stick: elapsedMs is a number >= 0',
+    !!timingSub2 && typeof timingSub2.elapsedMs === 'number' && timingSub2.elapsedMs >= 0,
+  )
+
+  // The HOST is echoed the open set too. Its UI reads that set in two places (the
+  // per-question canvas control and the dock's page toggle) and derives the student
+  // calculator swap from it, so a host-local-only set would silently drift.
+  const hostOpen = hostMsgs.filter((m) => m.type === 'quiz-open').at(-1)
+  check(
+    'host receives the quiz-open echo (drives the calculator swap)',
+    !!hostOpen && [...hostOpen.qids].sort().join(',') === 'q1,q2',
+  )
+
+  // A reconnecting tutor gets the open set replayed, not just the stats.
+  const { ws: h3, inbox: h3Msgs } = await openWithInbox(`${WS}/control/${r}?role=host`)
+  await wait(300)
+  const h3Open = h3Msgs.find((m) => m.type === 'quiz-open')
+  check(
+    'reconnecting host receives the current quiz-open set',
+    !!h3Open && [...h3Open.qids].sort().join(',') === 'q1,q2',
+  )
+
+  for (const ws of [h, g, late, h3]) ws.close()
 }
 
 // 5: /connect sync socket accepts upgrade and stays open ----------------------
