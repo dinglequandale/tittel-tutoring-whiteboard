@@ -9,6 +9,7 @@ import { getOrCreateRoom, getRoom, type ControlClient, type Room } from './rooms
 import type { QuestionKey, QuizStats, Submission } from '../shared/quiz.ts'
 import { gradeAnswer } from '../shared/grade.ts'
 import { MAX_ANSWER_LEN, GUEST_MSG_RATE, MAX_SEEN_BATCH, MAX_OPEN_QIDS } from '../shared/quiz.ts'
+import { GAME_RULES, GAME_MSG_RATE, MAX_DRAG_PAYLOAD, PLAYER_COUNT, type Player } from '../shared/games/index.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.PORT) || 5858
@@ -128,9 +129,84 @@ function allowQuizMessage(client: ControlClient): boolean {
   return rate.count <= GUEST_MSG_RATE
 }
 
+/**
+ * Separate rolling-window rate limit for game-move/game-drag, using its own
+ * bucket (ControlClient.gameRate) and its own ceiling (GAME_MSG_RATE = 60,
+ * not GUEST_MSG_RATE = 10). A live ~20Hz drag stream would get shredded by
+ * the quiz limiter — see games-spec.md's rate-limiting section.
+ */
+function allowGameMessage(client: ControlClient): boolean {
+  const now = Date.now()
+  const rate = client.gameRate
+  if (now - rate.windowStart >= 1000) {
+    rate.windowStart = now
+    rate.count = 0
+  }
+  rate.count++
+  return rate.count <= GAME_MSG_RATE
+}
+
+/** A userId is a short, non-empty string. Guests are untrusted, so cap length. */
+function validUserId(s: unknown): s is string {
+  return typeof s === 'string' && s.length > 0 && s.length <= 64
+}
+
+/** Clamps a tutor-supplied player display name; falls back to a generic label. */
+function clampPlayerName(raw: unknown): string {
+  if (typeof raw !== 'string' || raw.length === 0) return 'Player'
+  return raw.slice(0, 64)
+}
+
+/** Validates the exactly-PLAYER_COUNT players a tutor picked for `game-start`. */
+function validPlayers(raw: unknown): Player[] | null {
+  if (!Array.isArray(raw) || raw.length !== PLAYER_COUNT) return null
+  const players: Player[] = []
+  const seen = new Set<string>()
+  for (const p of raw) {
+    const userId = p && typeof p === 'object' ? (p as { userId?: unknown }).userId : undefined
+    if (!validUserId(userId)) return null
+    if (seen.has(userId)) return null // the same person can't occupy both seats
+    seen.add(userId)
+    players.push({ userId, name: clampPlayerName((p as { name?: unknown }).name) })
+  }
+  return players
+}
+
+/** Builds the sticky game-state snapshot. `game: null` means no game running —
+ *  this is the only message that mounts/unmounts the game stage on the client. */
+function gameStateMsg(room: Room) {
+  return {
+    type: 'game-state',
+    game: room.game
+      ? { gameId: room.game.gameId, state: room.game.state, players: room.game.players }
+      : null,
+  }
+}
+
+/**
+ * Whose turn it is right now, by userId — the single authorization gate for
+ * both game-move and game-drag. Every turn-based game in the registry is
+ * expected to expose a conventional `turn: 0 | 1` on its state (Nim does);
+ * reading it here is a wire-protocol convention shared by the whole registry,
+ * not Nim's rules — actual move legality (including a redundant turn check)
+ * still lives entirely inside GAME_RULES[gameId].applyMove.
+ */
+function currentPlayerUserId(room: Room): string | null {
+  const gm = room.game
+  if (!gm) return null
+  const turn = (gm.state as { turn?: unknown })?.turn
+  if (turn !== 0 && turn !== 1) return null
+  return gm.players[turn]?.userId ?? null
+}
+
 function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
   const room = getOrCreateRoom(roomId)
-  const client: ControlClient = { socket: ws, role, quizRate: { windowStart: Date.now(), count: 0 } }
+  const client: ControlClient = {
+    socket: ws,
+    role,
+    quizRate: { windowStart: Date.now(), count: 0 },
+    gameRate: { windowStart: Date.now(), count: 0 },
+  }
   room.controls.add(client)
 
   const broadcastToGuests = (payload: unknown) => {
@@ -138,8 +214,9 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
       if (c.role === 'guest') safeSend(c.socket, payload)
     }
   }
-  // Calculator state goes to everyone except the sender, so a student's edits
-  // (when editing is enabled) reach the tutor and other students without echo.
+  // Calculator state (and, below, a live game-drag) goes to everyone except
+  // the sender, so a student's edits/drags reach the tutor and other students
+  // without echoing back to the socket that sent them.
   const broadcastToOthers = (payload: unknown) => {
     for (const c of room.controls) {
       if (c.socket !== ws) safeSend(c.socket, payload)
@@ -152,6 +229,11 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
     }
   }
   const pushQuizStats = () => sendToHosts({ type: 'quiz-stats', stats: quizStats(room) })
+  // Unlike quiz-stats (host-only) or camera (guest-only), a running game board
+  // is visible to the whole room — including spectators who picked no seat.
+  const broadcastToEveryone = (payload: unknown) => {
+    for (const c of room.controls) safeSend(c.socket, payload)
+  }
 
   // A student joining mid-session immediately snaps to the tutor's current
   // view, the open calculator + its state, and the current edit-access setting.
@@ -184,6 +266,11 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
     safeSend(ws, { type: 'quiz-stats', stats: quizStats(room) })
     safeSend(ws, { type: 'quiz-open', qids: [...room.quizOpen] })
   }
+  // A running game is visible to the whole room; replay it on connect for
+  // BOTH roles so a late-joining student (or a reconnecting tutor) sees the
+  // board without clicking anything. Send nothing when there's no game — that
+  // is what keeps a game-free room free of game traffic.
+  if (room.game) safeSend(ws, gameStateMsg(room))
 
   ws.on('message', (data) => {
     let msg: {
@@ -205,10 +292,50 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
       qids?: unknown
       value?: string
       name?: string
+      gameId?: string
+      players?: unknown
+      options?: unknown
+      move?: unknown
+      payload?: unknown
     }
     try {
       msg = JSON.parse(data.toString())
     } catch {
+      return
+    }
+
+    // Play messages (game-move, game-drag) are accepted from EITHER role and
+    // authorized by identity, not role — a host who is themselves a player
+    // must be able to move, and a host who ISN'T the current player must not.
+    // This check runs before any role branching below, on purpose: putting it
+    // inside the `role === 'host'` branch would make a student's own moves
+    // unreachable. See games-spec.md's "single most important structural rule".
+    if (msg?.type === 'game-move') {
+      if (role === 'guest' && !allowGameMessage(client)) return
+      const gm = room.game
+      if (!gm) return
+      if (!validUserId(msg.userId)) return
+      if (msg.userId !== currentPlayerUserId(room)) return
+      const rules = GAME_RULES[gm.gameId]
+      if (!rules) return // unreachable: gameId was validated at game-start
+      const playerIdx = gm.players.findIndex((p) => p.userId === msg.userId) as 0 | 1
+      const result = rules.applyMove(gm.state, playerIdx, msg.move)
+      if (!result.ok) return // illegal move (e.g. a hand-crafted frame) — drop it silently
+      gm.state = result.state
+      broadcastToEveryone(gameStateMsg(room))
+      return
+    }
+    if (msg?.type === 'game-drag') {
+      if (role === 'guest' && !allowGameMessage(client)) return
+      const gm = room.game
+      if (!gm) return
+      if (!validUserId(msg.userId)) return
+      if (msg.userId !== currentPlayerUserId(room)) return
+      if (typeof msg.payload !== 'object' || msg.payload === null) return
+      if (JSON.stringify(msg.payload).length > MAX_DRAG_PAYLOAD) return
+      // Advisory only — never touches authoritative state, never stored, and
+      // never replayed to a late joiner (unlike game-state, which is sticky).
+      broadcastToOthers({ type: 'game-drag', payload: msg.payload })
       return
     }
 
@@ -341,6 +468,33 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
         const openMsg = { type: 'quiz-open', qids: [...room.quizOpen] }
         broadcastToGuests(openMsg)
         sendToHosts(openMsg)
+      } else if (msg?.type === 'game-start') {
+        // Admin (game-start/reset/end): host role only. The server dispatches
+        // through GAME_RULES and contains no Nim-specific (or any other
+        // game's) logic — an unrecognized gameId is simply ignored.
+        const rules = typeof msg.gameId === 'string' ? GAME_RULES[msg.gameId] : undefined
+        const players = validPlayers(msg.players)
+        if (!rules || !players || typeof msg.gameId !== 'string') return
+        room.game = { gameId: msg.gameId, state: rules.create(msg.options), options: msg.options, players }
+        broadcastToEveryone(gameStateMsg(room))
+      } else if (msg?.type === 'game-reset') {
+        // Same game, same players, same options — only the state is fresh.
+        // `options` isn't part of this message (it's a bare `{ type:
+        // 'game-reset' }`), so the server keeps its own copy from game-start
+        // (see the `game` field's comment in rooms.ts) to make a rematch
+        // possible without the tutor resending the whole setup.
+        const gm = room.game
+        if (!gm) return
+        const rules = GAME_RULES[gm.gameId]
+        if (!rules) return // unreachable: gameId was validated at game-start
+        room.game = { ...gm, state: rules.create(gm.options) }
+        broadcastToEveryone(gameStateMsg(room))
+      } else if (msg?.type === 'game-end') {
+        // Tears the game down for everyone; gameStateMsg naturally sends
+        // `game: null` once room.game is cleared, which is what tells
+        // clients to unmount the stage.
+        room.game = null
+        broadcastToEveryone(gameStateMsg(room))
       }
     } else if (
       msg?.type === 'calc' &&

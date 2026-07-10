@@ -1,6 +1,7 @@
 import { TLSocketRoom } from '@tldraw/sync-core'
 import type { WebSocket as WsSocket } from 'ws'
 import type { QuestionKey, Submission } from '../shared/quiz.ts'
+import type { Player } from '../shared/games/index.ts'
 
 // Rooms are 100% in-memory and volatile. When the last drawing session leaves,
 // we wait a short grace period (to survive refreshes/flaky networks) and then
@@ -14,6 +15,10 @@ export type ControlClient = {
   role: 'host' | 'guest'
   /** Rolling-window rate limit state for guest quiz messages (see GUEST_MSG_RATE). */
   quizRate: { windowStart: number; count: number }
+  /** Separate rolling-window bucket for game-move/game-drag (see GAME_MSG_RATE).
+   *  Kept apart from quizRate so a live drag stream can't starve, or be starved
+   *  by, quiz traffic sharing one counter. */
+  gameRate: { windowStart: number; count: number }
 }
 
 export interface Room {
@@ -61,6 +66,17 @@ export interface Room {
    *  baseline for `elapsedMs` when a student's own `quiz-seen` never arrives
    *  (dropped frame, rate-limited, etc.) — see the `quiz-answer` handler. */
   quizOpenedAt: Map<string, number>
+  /** The currently-running game, or null when no game is active. Single slot —
+   *  one game at a time per room, mirroring one lesson/one calc/one timer. The
+   *  server never inspects `state` or `options`; both are opaque and owned by
+   *  GAME_RULES[gameId]. `options` is kept alongside `state` (beyond the
+   *  {gameId, state, players} shape sketched in games-spec.md) because
+   *  `game-reset` arrives as a bare `{ type: 'game-reset' }` with no options
+   *  of its own, yet must recreate "the same game, same players, same
+   *  options" — the server has nowhere else to remember them without baking
+   *  game-specific knowledge (e.g. reverse-engineering Nim's original pile
+   *  size from `tokens.length + taken.length`) into server/index.ts. */
+  game: { gameId: string; state: unknown; options: unknown; players: Player[] } | null
   closeTimer: ReturnType<typeof setTimeout> | null
 }
 
@@ -99,6 +115,7 @@ export function getOrCreateRoom(id: string): Room {
     quizRevealed: false,
     quizOpen: new Set(),
     quizOpenedAt: new Map(),
+    game: null,
     closeTimer: null,
     // Set just below; typed non-null for ergonomic access.
     socketRoom: undefined as unknown as TLSocketRoom<any, void>,

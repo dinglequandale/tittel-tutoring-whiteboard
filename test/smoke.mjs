@@ -648,6 +648,122 @@ check('late student receives current edit-access on join', joinMsgs.some((m) => 
   for (const ws of [h, g]) ws.close()
 }
 
+// 16: game library — server dispatch, turn authorization by identity, and the
+// advisory game-drag relay (Phase 1: shared/games/nim.ts + server/index.ts
+// wiring; there is no client yet, so this drives the wire protocol directly).
+{
+  const r = `game-${Math.random().toString(36).slice(2, 8)}`
+  const { ws: h, inbox: hostMsgs } = await openWithInbox(`${WS}/control/${r}?role=host`)
+  const { ws: g, inbox: guestMsgs } = await openWithInbox(`${WS}/control/${r}?role=guest`)
+  await wait(100)
+
+  const lastGameState = (inbox) => inbox.filter((m) => m.type === 'game-state').at(-1)
+
+  // Player 0 (turn 0 moves first) is the GUEST and player 1 is the HOST, on
+  // purpose: it lets the very first move-authorization check exercise "a host
+  // who is NOT the current player cannot move" before anyone has moved yet.
+  h.send(
+    JSON.stringify({
+      type: 'game-start',
+      gameId: 'nim',
+      players: [
+        { userId: 'p-guest', name: 'Alice' },
+        { userId: 'p-host', name: 'Tutor' },
+      ],
+      options: { pile: 5, maxTake: 3, misere: false },
+    }),
+  )
+  await wait(150)
+
+  check(
+    'host game-start broadcasts game-state to the host',
+    !!lastGameState(hostMsgs) &&
+      lastGameState(hostMsgs).game?.gameId === 'nim' &&
+      lastGameState(hostMsgs).game?.state.tokens.length === 5 &&
+      lastGameState(hostMsgs).game?.state.turn === 0,
+  )
+  check(
+    'host game-start broadcasts game-state to the guest too',
+    !!lastGameState(guestMsgs) && lastGameState(guestMsgs).game?.gameId === 'nim',
+  )
+
+  // The host is player 1, not player 0 — not the current player. Rejected,
+  // and no game-state goes out to anyone (state is unchanged).
+  const beforeHostReject = hostMsgs.length
+  const beforeGuestReject = guestMsgs.length
+  h.send(JSON.stringify({ type: 'game-move', userId: 'p-host', move: { tokenIds: ['t0'] } }))
+  await wait(150)
+  check(
+    'a host who is not the current player has game-move rejected (no state change)',
+    hostMsgs.length === beforeHostReject && guestMsgs.length === beforeGuestReject,
+  )
+
+  // The guest IS player 0 (the current player): the move is accepted and the
+  // resulting state (turn flips to 1, pile shrinks by 2) reaches both sockets.
+  const stateMsg = nextMessage(g)
+  g.send(JSON.stringify({ type: 'game-move', userId: 'p-guest', move: { tokenIds: ['t0', 't1'] } }))
+  const advanced = JSON.parse(await stateMsg)
+  check(
+    'a guest who is the current player can game-move and the state advances',
+    advanced.type === 'game-state' && advanced.game?.state.tokens.length === 3 && advanced.game?.state.turn === 1,
+  )
+  await wait(50)
+  check('the advanced state also reaches the host', lastGameState(hostMsgs)?.game?.state.tokens.length === 3)
+
+  // Turn is now player 1 (p-host)'s. The guest (p-guest) is no longer current
+  // — a move from them must now be rejected too.
+  const beforeStaleGuest = guestMsgs.length
+  const beforeStaleHost = hostMsgs.length
+  g.send(JSON.stringify({ type: 'game-move', userId: 'p-guest', move: { tokenIds: ['t2'] } }))
+  await wait(150)
+  check(
+    'a guest who is NOT the current player has game-move rejected (no state change)',
+    guestMsgs.length === beforeStaleGuest && hostMsgs.length === beforeStaleHost,
+  )
+
+  // game-drag from the current player (now p-host) relays to the guest, but
+  // never echoes back to the sending host socket — it's advisory-only and
+  // never touches authoritative state.
+  const dragMsg = nextMessage(g)
+  const beforeHostDrag = hostMsgs.length
+  h.send(
+    JSON.stringify({
+      type: 'game-drag',
+      userId: 'p-host',
+      payload: { picked: ['t2'], ghost: { id: 't2', x: 0.5, y: 0.5 } },
+    }),
+  )
+  const relayedDrag = JSON.parse(await dragMsg)
+  check(
+    'game-drag from the current player relays to others',
+    relayedDrag.type === 'game-drag' && JSON.stringify(relayedDrag.payload.picked) === JSON.stringify(['t2']),
+  )
+  await wait(150)
+  check(
+    'game-drag never echoes back to the sender',
+    !hostMsgs.slice(beforeHostDrag).some((m) => m.type === 'game-drag'),
+  )
+
+  // A late-joining socket receives the current game-state immediately on
+  // connect, without clicking anything (this is what mounts the lazy chunk).
+  const { ws: late, inbox: lateMsgs } = await openWithInbox(`${WS}/control/${r}?role=guest`)
+  await wait(300)
+  check(
+    'a late-joining socket receives game-state on connect',
+    lastGameState(lateMsgs)?.game?.gameId === 'nim' && lastGameState(lateMsgs)?.game?.state.tokens.length === 3,
+  )
+
+  // game-end tears the game down for everyone.
+  const endMsg = nextMessage(g)
+  h.send(JSON.stringify({ type: 'game-end' }))
+  const ended = JSON.parse(await endMsg)
+  check('game-end broadcasts game-state with game: null', ended.type === 'game-state' && ended.game === null)
+  await wait(50)
+  check('game-end reaches the host too', lastGameState(hostMsgs)?.game === null)
+
+  for (const ws of [h, g, late]) ws.close()
+}
+
 // 5: /connect sync socket accepts upgrade and stays open ----------------------
 const sync = await open(`${WS}/connect/${ROOM}?sessionId=sess-1`)
 await wait(1500)
