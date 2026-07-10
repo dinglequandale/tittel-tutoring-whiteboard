@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Tldraw,
   DefaultMainMenu,
@@ -243,6 +243,14 @@ function BoardCanvas({
   // free reign, without the roaming half.
   const [openQids, setOpenQids] = useState<Set<string>>(() => new Set())
   const practiceOpen = openQids.size > 0
+  // Game library: `gamesOpen` is host-only ("I clicked the Games button") and
+  // `gameActive` tracks the server-authoritative `game-state` (`game !== null`)
+  // for BOTH roles — a guest never sets `gamesOpen` (no dock button for it),
+  // so `gameActive` alone is what mounts the lazy chunk on their side. Either
+  // one being true is enough to mount GameHost; see the lazy render below.
+  const [gamesOpen, setGamesOpen] = useState(false)
+  const [gameActive, setGameActive] = useState(false)
+  useEffect(() => channel.on('game-state', (m) => setGameActive(!!m.game)), [channel])
   // Live-toggleable follow controllers for camera + page.
   const cameraCtl = useRef<FollowController | null>(null)
   const pageCtl = useRef<FollowController | null>(null)
@@ -596,6 +604,31 @@ function BoardCanvas({
     channel.send({ type: 'quiz-open', qids })
   }
 
+  // Room roster for the game library's player picker, computed the same way
+  // as `rosterSize` above: tldraw presence, plus a synthesized self entry
+  // (`getCollaborators()` excludes self). GameHost renders outside <Tldraw>,
+  // so it has no editor context of its own — Board is the only place that
+  // can read presence, hence passing this down as a plain prop.
+  const participants = useValue(
+    'game participants',
+    () => {
+      const others = editor
+        ? editor.getCollaborators().map((c) => ({ userId: c.userId, name: c.userName || 'Student', color: c.color }))
+        : []
+      const self = { userId, name: isHost ? 'Tutor (you)' : displayName, color: isHost ? '#2563eb' : '#16a34a' }
+      return [self, ...others]
+    },
+    [editor, isHost, displayName],
+  )
+
+  // The single dynamic import() boundary for the whole game library (see
+  // games-spec.md's "Zero cost when unused"). Nothing under client/src/games/
+  // is imported statically anywhere in this file — a room with no game
+  // running ships none of that code. `useMemo` keeps the lazy() wrapper's
+  // identity stable across re-renders so Suspense doesn't treat it as a new
+  // component and re-trigger the chunk load.
+  const LazyGameHost = useMemo(() => lazy(() => import('./games/GameHost')), [])
+
   // Hide editing UI from students per their state; the host gets custom pieces.
   //  - Toolbar (draw tools + image upload): students only when they may write.
   //  - PageMenu (create/switch pages): students only while roaming under free reign.
@@ -669,6 +702,9 @@ function BoardCanvas({
           <button className="dock-btn" onClick={() => setCalcOpen((v) => !v)}>
             {calcOpen ? 'Hide calculator' : '🧮 Calculator'}
           </button>
+          <button className="dock-btn" onClick={() => setGamesOpen(true)}>
+            🎲 Games
+          </button>
           <input
             ref={lessonInputRef}
             type="file"
@@ -729,6 +765,23 @@ function BoardCanvas({
       {!isHost && studentSoloCalc && personalCalcOpen && (
         <Calculator channel={channel} isHost={false} personal />
       )}
+
+      {/* Game library, lazily loaded. Mounted when the host opens the library
+          OR when a game is already running (that second condition is how a
+          guest — who has no dock button of their own — mounts the chunk).
+          Renders outside <Tldraw>, a sibling of Timer/Calculator, in screen
+          space with no editor context of its own. */}
+      <Suspense fallback={null}>
+        {(gamesOpen || gameActive) && (
+          <LazyGameHost
+            channel={channel}
+            isHost={isHost}
+            userId={userId}
+            participants={participants}
+            onClose={() => setGamesOpen(false)}
+          />
+        )}
+      </Suspense>
     </div>
   )
 }

@@ -15,6 +15,10 @@ type Handler = (msg: any) => void
 // 'quiz-open' are replayed to a guest on join — all three can land before the
 // stats panel / answer overlay has mounted, so the latest value must survive
 // until they subscribe.
+// 'game-state' is replayed to BOTH roles on connect (a running game is visible
+// to the whole room, not just the tutor) — that replay is what lets a late
+// joiner (or a reconnecting tutor) mount the lazy games chunk without clicking
+// anything. See games-spec.md's "Sticky replay" section.
 const STICKY_TYPES = new Set([
   'camera',
   'page',
@@ -24,6 +28,7 @@ const STICKY_TYPES = new Set([
   'quiz-stats',
   'quiz-revealed',
   'quiz-open',
+  'game-state',
 ])
 
 export class ControlChannel {
