@@ -30,17 +30,23 @@ export interface OptionRange {
   default: number
 }
 
+/** One tutor-configurable field on the setup screen. GameSetup (in
+ *  GameLibrary.tsx) renders these generically — a stepper or a checkbox —
+ *  keyed by `key`, which becomes a property of `game-start`'s `options`. */
+export type GameOptionField =
+  | { key: string; label: string; kind: 'stepper'; range: OptionRange }
+  | { key: string; label: string; kind: 'checkbox'; default: boolean }
+
 export interface GameMeta {
   id: string
   title: string
   blurb: string
-  pile: OptionRange
-  misereDefault: boolean
-  /** Not tutor-configurable in Phase 2's setup screen (games-spec.md only
-   *  calls for a pile stepper + misère toggle) — kept here so `game-start`'s
-   *  options are fully determined by the registry, not hand-assembled at the
-   *  call site. */
-  maxTakeDefault: number
+  /** Setup-screen fields, in display order. */
+  options: GameOptionField[]
+  /** Extra values merged into `game-start`'s `options` alongside whatever the
+   *  tutor picked above — for values the registry fixes rather than exposing
+   *  on the setup screen (e.g. Nim's maxTake). */
+  fixedOptions?: Record<string, unknown>
   Component: LazyExoticComponent<ComponentType<GameComponentProps>>
 }
 
@@ -50,13 +56,26 @@ export const GAMES: GameMeta[] = [
     title: 'The 21 Game',
     blurb:
       'One pile of tokens. Take 1–3 on your turn. Whoever takes the last token wins — unless you flip Misère, where taking the last one loses.',
-    pile: { min: 5, max: 40, default: 21 },
-    misereDefault: false,
-    maxTakeDefault: 3,
+    options: [
+      { key: 'pile', label: 'Pile size', kind: 'stepper', range: { min: 5, max: 40, default: 21 } },
+      { key: 'misere', label: 'Misère (taking the last token loses)', kind: 'checkbox', default: false },
+    ],
+    fixedOptions: { maxTake: 3 },
     // Its own lazy() boundary, separate from every other game's: this is what
     // keeps Nim's rules (shared/games/nim.ts, including the tutor-only hint
     // logic) and UI out of the chunk this registry itself lives in.
     Component: lazy(() => import('./nim/NimGame')),
+  },
+  {
+    id: 'lockers',
+    title: 'The Locker Problem',
+    blurb:
+      '100 closed lockers. Student 1 opens every one. Student 2 toggles every 2nd. Student N toggles every Nth. Which lockers end up open?',
+    options: [
+      { key: 'lockerCount', label: 'Number of lockers', kind: 'stepper', range: { min: 16, max: 144, default: 100 } },
+    ],
+    // Its own lazy() boundary too — see the comment on Nim's Component above.
+    Component: lazy(() => import('./lockers/LockersGame')),
   },
 ]
 

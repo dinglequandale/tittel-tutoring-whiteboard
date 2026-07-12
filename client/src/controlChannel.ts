@@ -19,6 +19,9 @@ type Handler = (msg: any) => void
 // to the whole room, not just the tutor) — that replay is what lets a late
 // joiner (or a reconnecting tutor) mount the lazy games chunk without clicking
 // anything. See games-spec.md's "Sticky replay" section.
+// 'game-view' is the same idea for a running game's non-authoritative display
+// preferences (e.g. Lockers' Fit/visit-count toggles) — host-set, but the
+// whole room should render it identically, including a late joiner.
 const STICKY_TYPES = new Set([
   'camera',
   'page',
@@ -29,6 +32,7 @@ const STICKY_TYPES = new Set([
   'quiz-revealed',
   'quiz-open',
   'game-state',
+  'game-view',
 ])
 
 export class ControlChannel {

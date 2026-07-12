@@ -270,7 +270,14 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
   // BOTH roles so a late-joining student (or a reconnecting tutor) sees the
   // board without clicking anything. Send nothing when there's no game — that
   // is what keeps a game-free room free of game traffic.
-  if (room.game) safeSend(ws, gameStateMsg(room))
+  if (room.game) {
+    safeSend(ws, gameStateMsg(room))
+    // Non-authoritative display preferences (e.g. Lockers' Fit/visit-count
+    // toggles) ride along the same replay so a late joiner or a reconnecting
+    // tutor sees the board exactly as everyone else currently has it laid
+    // out, not the game's default view.
+    if (room.game.view !== undefined) safeSend(ws, { type: 'game-view', view: room.game.view })
+  }
 
   ws.on('message', (data) => {
     let msg: {
@@ -297,6 +304,7 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
       options?: unknown
       move?: unknown
       payload?: unknown
+      view?: unknown
     }
     try {
       msg = JSON.parse(data.toString())
@@ -495,6 +503,18 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
         // clients to unmount the stage.
         room.game = null
         broadcastToEveryone(gameStateMsg(room))
+      } else if (msg?.type === 'game-view') {
+        // Host-only, non-authoritative display preferences (e.g. Lockers'
+        // Fit/visit-count toggles) that the whole room should render the same
+        // way. Deliberately NOT routed through GAME_RULES — this never
+        // touches `state`, so a malformed or hostile `view` payload can only
+        // ever affect how the board is drawn, never what move is legal.
+        const gm = room.game
+        if (!gm) return
+        if (typeof msg.view !== 'object' || msg.view === null) return
+        if (JSON.stringify(msg.view).length > MAX_DRAG_PAYLOAD) return
+        gm.view = msg.view
+        broadcastToGuests({ type: 'game-view', view: gm.view })
       }
     } else if (
       msg?.type === 'calc' &&

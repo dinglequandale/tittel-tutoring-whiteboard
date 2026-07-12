@@ -76,7 +76,18 @@ export interface Room {
    *  options" — the server has nowhere else to remember them without baking
    *  game-specific knowledge (e.g. reverse-engineering Nim's original pile
    *  size from `tokens.length + taken.length`) into server/index.ts. */
-  game: { gameId: string; state: unknown; options: unknown; players: Player[] } | null
+  game: {
+    gameId: string
+    state: unknown
+    options: unknown
+    players: Player[]
+    /** Host-only, non-authoritative display preferences the whole room should
+     *  render the same way (e.g. Lockers' Fit/visit-count toggles) — NOT game
+     *  rules, so it bypasses GAME_RULES entirely; just a relay + last-value
+     *  cache, same shape as `freeReign`/`studentsCanEdit` below. Absent
+     *  (undefined) until the host first sets it. */
+    view?: unknown
+  } | null
   closeTimer: ReturnType<typeof setTimeout> | null
 }
 

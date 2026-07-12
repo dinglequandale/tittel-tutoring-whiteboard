@@ -753,6 +753,36 @@ check('late student receives current edit-access on join', joinMsgs.some((m) => 
     lastGameState(lateMsgs)?.game?.gameId === 'nim' && lastGameState(lateMsgs)?.game?.state.tokens.length === 3,
   )
 
+  // game-view: host-only, non-authoritative display prefs (e.g. Lockers'
+  // Fit/visit-count toggles). A guest sending one is ignored outright.
+  const beforeGuestView = guestMsgs.length
+  g.send(JSON.stringify({ type: 'game-view', view: { fit: true } }))
+  await wait(150)
+  check('a guest sending game-view is ignored (host-only)', guestMsgs.length === beforeGuestView)
+
+  // The host sending game-view relays to the guest, but never echoes back to
+  // the host's own socket (mirrors free-reign's broadcastToGuests pattern —
+  // the host already applies it optimistically client-side).
+  const viewMsg = nextMessage(g)
+  const beforeHostView = hostMsgs.length
+  h.send(JSON.stringify({ type: 'game-view', view: { fit: true, showCounts: false } }))
+  const relayedView = JSON.parse(await viewMsg)
+  check(
+    'game-view from the host relays to the guest',
+    relayedView.type === 'game-view' && relayedView.view.fit === true,
+  )
+  await wait(150)
+  check('game-view never echoes back to the host', !hostMsgs.slice(beforeHostView).some((m) => m.type === 'game-view'))
+
+  // A late joiner gets the room's CURRENT view replayed on connect, right
+  // alongside game-state — not the game's default look.
+  const { inbox: lateViewMsgs } = await openWithInbox(`${WS}/control/${r}?role=guest`)
+  await wait(300)
+  check(
+    'a late-joining socket receives the current game-view on connect',
+    lateViewMsgs.some((m) => m.type === 'game-view' && m.view?.fit === true),
+  )
+
   // game-end tears the game down for everyone.
   const endMsg = nextMessage(g)
   h.send(JSON.stringify({ type: 'game-end' }))

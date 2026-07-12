@@ -1,0 +1,198 @@
+/* The Locker Problem board UI. Imported only from LockersGame.tsx itself, so
+   it lands in Lockers' own lazy chunk rather than the games-chrome chunk or
+   the entry bundle — see games-spec.md and test/build-split.mjs. */
+
+.lockers-game {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.lockers-banner {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.lockers-banner-done {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--brand);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .lockers-banner-done {
+    animation: lockers-done-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+}
+
+@keyframes lockers-done-pop {
+  0% {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.lockers-reveal {
+  margin-top: 0.3rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.lockers-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* Tutor-only controls, but — unlike Nim's ".nim-controls" layout toggle,
+   which is deliberately local-only — these broadcast via `game-view` so the
+   whole room sees the same layout the tutor is pointing at. */
+.lockers-tutor-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.lockers-toggle-chip {
+  font-size: 0.75rem;
+}
+
+.lockers-toggle-chip.active {
+  border-color: var(--brand);
+  background: #eff6ff;
+}
+
+.lockers-grid {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.4rem;
+}
+
+/* Shrinks the whole board so it fits the stage without scrolling. Unlike the
+   default layout (a fixed sqrt-based column count, so a 100-locker board
+   reads as a classic 10x10), fit mode drops the fixed count entirely and
+   lets the grid pack as many small cells as actually fit the stage's real
+   width (auto-fill), growing each row to fill it (1fr) rather than leaving
+   the sides empty — more columns, fewer rows, less to scroll through. */
+.lockers-grid.fit {
+  grid-template-columns: repeat(auto-fill, minmax(1.5rem, 1fr));
+  max-width: none;
+  gap: 0.1rem;
+  padding: 0.1rem;
+}
+
+.lockers-grid.fit .locker-number {
+  font-size: 0.42rem;
+}
+
+/* Each cell: a dark "interior" (::after would be redundant — the base
+   background already reads as the inside of the locker once the door swings
+   away) behind a swinging "door" (::before), so opening a locker never needs
+   to swap DOM nodes, just animate the door's own transform. */
+.locker {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  min-width: 0;
+  border-radius: 0.3rem;
+  overflow: hidden;
+  background: #0f172a;
+  border: 2px solid #1e293b;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 0.12rem;
+}
+
+.locker-number {
+  position: relative;
+  z-index: 2;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.4);
+}
+
+.locker::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(155deg, #60a5fa, #2563eb);
+  border-right: 2px solid #1e3a8a;
+  transform-origin: left center;
+  transform: scaleX(1);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .locker::before {
+    transition: transform 0.4s ease, background 0.4s ease;
+    transition-delay: var(--locker-delay, 0ms);
+  }
+  /* A quick pop on the whole cell, staggered by the same delay as the door's
+     own transition, so a multi-locker pass reads as a wave sweeping across
+     the grid in ascending locker order — not a silent snap to the new state. */
+  .locker.flipping {
+    animation: locker-pop 0.5s ease;
+    animation-delay: var(--locker-delay, 0ms);
+  }
+}
+
+@keyframes locker-pop {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.14);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.locker.open::before {
+  background: linear-gradient(155deg, #4ade80, #16a34a);
+  border-right-color: #15803d;
+  transform: scaleX(0.22);
+}
+
+/* Once every student has gone, ring every open locker to connect the reveal
+   text ("the perfect squares!") straight back to the board itself. */
+.locker.square {
+  box-shadow: 0 0 0 3px #facc15;
+}
+
+/* Deliberately cramped, not tidy: the count sits right next to the locker
+   number on the same line rather than in its own neatly-placed badge, so a
+   fully-toggled board reads as dense and busy — the point is to visually
+   contrast with the clean open/closed view, not to be legible at a glance. */
+.lockers-grid.show-counts .locker {
+  flex-direction: row;
+  gap: 1px;
+  padding-bottom: 0.05rem;
+}
+
+.locker-count {
+  position: relative;
+  z-index: 2;
+  font-size: 0.52rem;
+  font-weight: 800;
+  color: #fef08a;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6);
+}
+
+.lockers-grid.fit .locker-count {
+  font-size: 0.36rem;
+}
+
+.lockers-rematch {
+  align-self: flex-start;
+}

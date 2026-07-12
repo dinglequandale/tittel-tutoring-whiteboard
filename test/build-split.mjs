@@ -28,6 +28,12 @@
 // Either marker appearing in the entry chunk would mean Nim's UI/rules leaked
 // into the always-loaded bundle; both should appear together in whichever
 // separate chunk Nim split into.
+//
+// Lockers gets the same treatment with its own markers — 'the perfect
+// squares!' (the completion-reveal text, unique to LockersGame.tsx) and
+// 'locker-number' (a CSS class unique to its board) — plus an extra check
+// that its chunk is a DIFFERENT file from Nim's, since registry.ts's whole
+// point is a lazy() boundary per game, not just "not the entry bundle".
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -38,6 +44,7 @@ const assetsDir = path.join(distDir, 'assets')
 const indexHtmlPath = path.join(distDir, 'index.html')
 
 const MARKERS = ['No winning move', 'nim-token']
+const LOCKERS_MARKERS = ['the perfect squares!', 'locker-number']
 
 let failures = 0
 function check(name, ok) {
@@ -74,6 +81,10 @@ for (const marker of MARKERS) {
   check(`entry chunk does NOT contain ${JSON.stringify(marker)}`, !entrySrc.includes(marker))
 }
 
+for (const marker of LOCKERS_MARKERS) {
+  check(`entry chunk does NOT contain ${JSON.stringify(marker)}`, !entrySrc.includes(marker))
+}
+
 const otherChunksWithNim = jsFiles.filter((f) => {
   if (f === entryFile) return false
   const src = fs.readFileSync(path.join(assetsDir, f), 'utf8')
@@ -82,6 +93,22 @@ const otherChunksWithNim = jsFiles.filter((f) => {
 check(
   'a SEPARATE (non-entry) chunk contains every Nim marker — Nim actually split out',
   otherChunksWithNim.length > 0,
+)
+
+const otherChunksWithLockers = jsFiles.filter((f) => {
+  if (f === entryFile) return false
+  const src = fs.readFileSync(path.join(assetsDir, f), 'utf8')
+  return LOCKERS_MARKERS.every((m) => src.includes(m))
+})
+check(
+  'a SEPARATE (non-entry) chunk contains every Lockers marker — Lockers actually split out',
+  otherChunksWithLockers.length > 0,
+)
+check(
+  "Lockers' chunk is a DIFFERENT file from Nim's — each game got its own lazy() boundary, not a shared one",
+  otherChunksWithNim.length > 0 &&
+    otherChunksWithLockers.length > 0 &&
+    otherChunksWithNim.every((f) => !otherChunksWithLockers.includes(f)),
 )
 
 console.log(`\n${failures === 0 ? 'ALL GREEN' : failures + ' FAILURE(S)'}`)

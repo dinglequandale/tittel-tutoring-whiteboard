@@ -52,8 +52,13 @@ function GameSetup({
   // Picked userIds in pick order — order matters, it becomes seat 0/1 (whose
   // turn is first) in the `game-start` message.
   const [pickedIds, setPickedIds] = useState<string[]>([])
-  const [pile, setPile] = useState(game.pile.default)
-  const [misere, setMisere] = useState(game.misereDefault)
+  // One entry per game.options field, keyed by field.key. Seeded from each
+  // field's own default so a new game needs no setup-screen code of its own.
+  const [values, setValues] = useState<Record<string, number | boolean>>(() => {
+    const init: Record<string, number | boolean> = {}
+    for (const f of game.options) init[f.key] = f.kind === 'stepper' ? f.range.default : f.default
+    return init
+  })
 
   function togglePlayer(userId: string) {
     setPickedIds((prev) => {
@@ -75,7 +80,7 @@ function GameSetup({
       type: 'game-start',
       gameId: game.id,
       players,
-      options: { pile, maxTake: game.maxTakeDefault, misere },
+      options: { ...game.fixedOptions, ...values },
     })
   }
 
@@ -112,33 +117,45 @@ function GameSetup({
         )}
       </div>
 
-      <div className="game-setup-section">
-        <div className="game-setup-label">Pile size</div>
-        <div className="game-stepper">
-          <button
-            type="button"
-            disabled={pile <= game.pile.min}
-            onClick={() => setPile((v) => Math.max(game.pile.min, v - 1))}
-          >
-            −
-          </button>
-          <span className="game-stepper-value">{pile}</span>
-          <button
-            type="button"
-            disabled={pile >= game.pile.max}
-            onClick={() => setPile((v) => Math.min(game.pile.max, v + 1))}
-          >
-            +
-          </button>
-        </div>
-      </div>
-
-      <div className="game-setup-section">
-        <label className="game-setup-checkbox">
-          <input type="checkbox" checked={misere} onChange={(e) => setMisere(e.target.checked)} />
-          Misère (taking the last token loses)
-        </label>
-      </div>
+      {game.options.map((f) =>
+        f.kind === 'stepper' ? (
+          <div className="game-setup-section" key={f.key}>
+            <div className="game-setup-label">{f.label}</div>
+            <div className="game-stepper">
+              <button
+                type="button"
+                disabled={(values[f.key] as number) <= f.range.min}
+                onClick={() =>
+                  setValues((v) => ({ ...v, [f.key]: Math.max(f.range.min, (v[f.key] as number) - 1) }))
+                }
+              >
+                −
+              </button>
+              <span className="game-stepper-value">{values[f.key]}</span>
+              <button
+                type="button"
+                disabled={(values[f.key] as number) >= f.range.max}
+                onClick={() =>
+                  setValues((v) => ({ ...v, [f.key]: Math.min(f.range.max, (v[f.key] as number) + 1) }))
+                }
+              >
+                +
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="game-setup-section" key={f.key}>
+            <label className="game-setup-checkbox">
+              <input
+                type="checkbox"
+                checked={values[f.key] as boolean}
+                onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.checked }))}
+              />
+              {f.label}
+            </label>
+          </div>
+        ),
+      )}
 
       <button className="dock-btn primary game-setup-start" disabled={!canStart} onClick={start}>
         ▶ Start game
