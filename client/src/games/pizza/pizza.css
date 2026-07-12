@@ -1,0 +1,120 @@
+/* The Pizza Cutting Problem board UI. Imported only from PizzaGame.tsx
+   itself, so it lands in Pizza's own lazy chunk rather than the games-chrome
+   chunk or the entry bundle — see games-spec.md and test/build-split.mjs. */
+
+.pizza-game {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.pizza-banner {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.pizza-banner-done {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--brand);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .pizza-banner-done {
+    animation: pizza-done-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+}
+
+@keyframes pizza-done-pop {
+  0% {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.pizza-reveal {
+  margin-top: 0.3rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.pizza-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.pizza-stage {
+  position: relative;
+  width: min(100%, 420px);
+  align-self: center;
+}
+
+.pizza-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.pizza-crust {
+  fill: #e8b463;
+  stroke: #c1873a;
+  stroke-width: 6;
+}
+
+.pizza-cheese {
+  fill: #f6d78c;
+  stroke: none;
+}
+
+.pizza-pepperoni {
+  fill: #b5432b;
+  stroke: #8a2f1e;
+  stroke-width: 1;
+}
+
+.pizza-cut {
+  stroke: #7a1f12;
+  stroke-width: 3.5;
+  stroke-linecap: round;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .pizza-cut.fresh {
+    stroke-dasharray: 260;
+    stroke-dashoffset: 260;
+    animation: pizza-slice-in 0.5s ease-out forwards;
+    animation-delay: var(--cut-delay, 0ms);
+  }
+}
+
+@keyframes pizza-slice-in {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.pizza-count {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  background: rgba(15, 23, 42, 0.78);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+}
+
+.pizza-rematch {
+  align-self: flex-start;
+}

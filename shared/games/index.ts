@@ -6,6 +6,7 @@
 // DOM-free so `tsx` can load it server-side, same discipline as shared/grade.ts.
 import { createNim, applyNimMove, type NimOptions, type NimMove, type NimState } from './nim.ts'
 import { createLockers, applyLockersMove, type LockersOptions, type LockersMove, type LockersState } from './lockers.ts'
+import { createPizza, applyPizzaMove, type PizzaOptions, type PizzaMove, type PizzaState } from './pizza.ts'
 
 /** One of the exactly-two participants the tutor picked. Game-agnostic. */
 export interface Player {
@@ -34,6 +35,11 @@ export const GAME_RULES: Record<string, GameRules> = {
     create: (options) => createLockers(options as LockersOptions),
     applyMove: (state, playerIdx, move) => applyLockersMove(state as LockersState, playerIdx, move as LockersMove),
     isTerminal: (state) => (state as LockersState).done,
+  },
+  pizza: {
+    create: (options) => createPizza(options as PizzaOptions),
+    applyMove: (state, playerIdx, move) => applyPizzaMove(state as PizzaState, playerIdx, move as PizzaMove),
+    isTerminal: (state) => (state as PizzaState).done,
   },
 }
 

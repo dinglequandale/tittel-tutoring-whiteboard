@@ -34,6 +34,12 @@
 // 'locker-number' (a CSS class unique to its board) — plus an extra check
 // that its chunk is a DIFFERENT file from Nim's, since registry.ts's whole
 // point is a lazy() boundary per game, not just "not the entry bundle".
+//
+// Pizza gets the same treatment too, with 'pizza-pepperoni' (a CSS class
+// unique to its board, used as a JSX className so it lands in the JS chunk —
+// unlike a keyframe name, which Vite extracts into a separate .css asset
+// this test doesn't scan) and 'is making cut #' (banner text unique to
+// PizzaGame.tsx) as markers, checked against both Nim's and Lockers' chunks.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -45,6 +51,7 @@ const indexHtmlPath = path.join(distDir, 'index.html')
 
 const MARKERS = ['No winning move', 'nim-token']
 const LOCKERS_MARKERS = ['the perfect squares!', 'locker-number']
+const PIZZA_MARKERS = ['pizza-pepperoni', 'is making cut #']
 
 let failures = 0
 function check(name, ok) {
@@ -85,6 +92,10 @@ for (const marker of LOCKERS_MARKERS) {
   check(`entry chunk does NOT contain ${JSON.stringify(marker)}`, !entrySrc.includes(marker))
 }
 
+for (const marker of PIZZA_MARKERS) {
+  check(`entry chunk does NOT contain ${JSON.stringify(marker)}`, !entrySrc.includes(marker))
+}
+
 const otherChunksWithNim = jsFiles.filter((f) => {
   if (f === entryFile) return false
   const src = fs.readFileSync(path.join(assetsDir, f), 'utf8')
@@ -109,6 +120,22 @@ check(
   otherChunksWithNim.length > 0 &&
     otherChunksWithLockers.length > 0 &&
     otherChunksWithNim.every((f) => !otherChunksWithLockers.includes(f)),
+)
+
+const otherChunksWithPizza = jsFiles.filter((f) => {
+  if (f === entryFile) return false
+  const src = fs.readFileSync(path.join(assetsDir, f), 'utf8')
+  return PIZZA_MARKERS.every((m) => src.includes(m))
+})
+check(
+  'a SEPARATE (non-entry) chunk contains every Pizza marker — Pizza actually split out',
+  otherChunksWithPizza.length > 0,
+)
+check(
+  "Pizza's chunk is a DIFFERENT file from Nim's and Lockers' — each game got its own lazy() boundary, not a shared one",
+  otherChunksWithPizza.length > 0 &&
+    otherChunksWithNim.every((f) => !otherChunksWithPizza.includes(f)) &&
+    otherChunksWithLockers.every((f) => !otherChunksWithPizza.includes(f)),
 )
 
 console.log(`\n${failures === 0 ? 'ALL GREEN' : failures + ' FAILURE(S)'}`)

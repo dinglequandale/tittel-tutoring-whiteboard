@@ -77,6 +77,15 @@ export const GAMES: GameMeta[] = [
     // Its own lazy() boundary too — see the comment on Nim's Component above.
     Component: lazy(() => import('./lockers/LockersGame')),
   },
+  {
+    id: 'pizza',
+    title: 'The Pizza Cutting Problem',
+    blurb:
+      'A round pizza and N straight cuts. Every cut crosses every earlier one. Cut 1 → 2 pieces. Cut 2 → 4. Cut 3 → 7. How many after N?',
+    options: [{ key: 'maxCuts', label: 'Number of cuts', kind: 'stepper', range: { min: 1, max: 12, default: 8 } }],
+    // Its own lazy() boundary too — see the comment on Nim's Component above.
+    Component: lazy(() => import('./pizza/PizzaGame')),
+  },
 ]
 
 export function findGame(gameId: string): GameMeta | undefined {
