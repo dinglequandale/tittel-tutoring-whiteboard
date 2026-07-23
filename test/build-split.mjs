@@ -52,6 +52,12 @@ const indexHtmlPath = path.join(distDir, 'index.html')
 const MARKERS = ['No winning move', 'nim-token']
 const LOCKERS_MARKERS = ['the perfect squares!', 'locker-number']
 const PIZZA_MARKERS = ['pizza-pepperoni', 'is making cut #']
+// Balance: 'balance-stone' (a JSX className unique to its board) and the exact
+// tutor-hint text (a string literal unique to BalanceGame.tsx).
+const BALANCE_MARKERS = ['balance-stone', 'No winning move — balanced']
+// Coins: 'coins-coin' (a JSX className unique to its board) and the exact
+// mirror-hint text (a string literal unique to CoinsGame.tsx).
+const COINS_MARKERS = ['coins-coin', 'Copy the last coin through the center']
 
 let failures = 0
 function check(name, ok) {
@@ -96,6 +102,14 @@ for (const marker of PIZZA_MARKERS) {
   check(`entry chunk does NOT contain ${JSON.stringify(marker)}`, !entrySrc.includes(marker))
 }
 
+for (const marker of BALANCE_MARKERS) {
+  check(`entry chunk does NOT contain ${JSON.stringify(marker)}`, !entrySrc.includes(marker))
+}
+
+for (const marker of COINS_MARKERS) {
+  check(`entry chunk does NOT contain ${JSON.stringify(marker)}`, !entrySrc.includes(marker))
+}
+
 const otherChunksWithNim = jsFiles.filter((f) => {
   if (f === entryFile) return false
   const src = fs.readFileSync(path.join(assetsDir, f), 'utf8')
@@ -136,6 +150,41 @@ check(
   otherChunksWithPizza.length > 0 &&
     otherChunksWithNim.every((f) => !otherChunksWithPizza.includes(f)) &&
     otherChunksWithLockers.every((f) => !otherChunksWithPizza.includes(f)),
+)
+
+const otherChunksWithBalance = jsFiles.filter((f) => {
+  if (f === entryFile) return false
+  const src = fs.readFileSync(path.join(assetsDir, f), 'utf8')
+  return BALANCE_MARKERS.every((m) => src.includes(m))
+})
+check(
+  'a SEPARATE (non-entry) chunk contains every Balance marker — Balance actually split out',
+  otherChunksWithBalance.length > 0,
+)
+check(
+  "Balance's chunk is its own file, distinct from Nim/Lockers/Pizza",
+  otherChunksWithBalance.length > 0 &&
+    otherChunksWithNim.every((f) => !otherChunksWithBalance.includes(f)) &&
+    otherChunksWithLockers.every((f) => !otherChunksWithBalance.includes(f)) &&
+    otherChunksWithPizza.every((f) => !otherChunksWithBalance.includes(f)),
+)
+
+const otherChunksWithCoins = jsFiles.filter((f) => {
+  if (f === entryFile) return false
+  const src = fs.readFileSync(path.join(assetsDir, f), 'utf8')
+  return COINS_MARKERS.every((m) => src.includes(m))
+})
+check(
+  'a SEPARATE (non-entry) chunk contains every Coins marker — Coins actually split out',
+  otherChunksWithCoins.length > 0,
+)
+check(
+  "Coins' chunk is its own file, distinct from Nim/Lockers/Pizza/Balance",
+  otherChunksWithCoins.length > 0 &&
+    otherChunksWithNim.every((f) => !otherChunksWithCoins.includes(f)) &&
+    otherChunksWithLockers.every((f) => !otherChunksWithCoins.includes(f)) &&
+    otherChunksWithPizza.every((f) => !otherChunksWithCoins.includes(f)) &&
+    otherChunksWithBalance.every((f) => !otherChunksWithCoins.includes(f)),
 )
 
 console.log(`\n${failures === 0 ? 'ALL GREEN' : failures + ' FAILURE(S)'}`)

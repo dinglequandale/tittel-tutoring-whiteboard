@@ -7,6 +7,8 @@
 import { createNim, applyNimMove, type NimOptions, type NimMove, type NimState } from './nim.ts'
 import { createLockers, applyLockersMove, type LockersOptions, type LockersMove, type LockersState } from './lockers.ts'
 import { createPizza, applyPizzaMove, type PizzaOptions, type PizzaMove, type PizzaState } from './pizza.ts'
+import { createBalance, applyBalanceMove, type BalanceOptions, type BalanceMove, type BalanceState } from './balance.ts'
+import { createCoins, applyCoinsMove, type CoinsOptions, type CoinsMove, type CoinsState } from './coins.ts'
 
 /** One of the exactly-two participants the tutor picked. Game-agnostic. */
 export interface Player {
@@ -40,6 +42,16 @@ export const GAME_RULES: Record<string, GameRules> = {
     create: (options) => createPizza(options as PizzaOptions),
     applyMove: (state, playerIdx, move) => applyPizzaMove(state as PizzaState, playerIdx, move as PizzaMove),
     isTerminal: (state) => (state as PizzaState).done,
+  },
+  balance: {
+    create: (options) => createBalance(options as BalanceOptions),
+    applyMove: (state, playerIdx, move) => applyBalanceMove(state as BalanceState, playerIdx, move as BalanceMove),
+    isTerminal: (state) => (state as BalanceState).winner !== null,
+  },
+  coins: {
+    create: (options) => createCoins(options as CoinsOptions),
+    applyMove: (state, playerIdx, move) => applyCoinsMove(state as CoinsState, playerIdx, move as CoinsMove),
+    isTerminal: (state) => (state as CoinsState).winner !== null,
   },
 }
 

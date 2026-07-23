@@ -86,6 +86,33 @@ export const GAMES: GameMeta[] = [
     // Its own lazy() boundary too — see the comment on Nim's Component above.
     Component: lazy(() => import('./pizza/PizzaGame')),
   },
+  {
+    id: 'balance',
+    title: 'Balance',
+    blurb:
+      'Two piles of stones. On your turn take any number from ONE pile. Whoever takes the last stone wins. Can you keep the piles balanced?',
+    options: [
+      { key: 'a', label: 'Left pile', kind: 'stepper', range: { min: 1, max: 15, default: 5 } },
+      { key: 'b', label: 'Right pile', kind: 'stepper', range: { min: 1, max: 15, default: 8 } },
+      { key: 'misere', label: 'Misère (taking the last stone loses)', kind: 'checkbox', default: false },
+    ],
+    // Its own lazy() boundary too — see the comment on Nim's Component above.
+    Component: lazy(() => import('./balance/BalanceGame')),
+  },
+  {
+    id: 'coins',
+    title: 'Coins on a Round Table',
+    blurb:
+      'Take turns placing coins on the table — no overlaps, none hanging off. Place the last coin to win. Is there a way the first player always wins?',
+    options: [
+      { key: 'freeform', label: 'Freeform — real game, place anywhere (you call “no moves left”)', kind: 'checkbox', default: true },
+      { key: 'across', label: 'Coin size (coins across)', kind: 'stepper', range: { min: 4, max: 9, default: 6 } },
+      { key: 'rectangle', label: 'Rectangular table (homework variant)', kind: 'checkbox', default: false },
+      { key: 'centerBlocked', label: 'Block the center (lattice demo only)', kind: 'checkbox', default: false },
+    ],
+    // Its own lazy() boundary too — see the comment on Nim's Component above.
+    Component: lazy(() => import('./coins/CoinsGame')),
+  },
 ]
 
 export function findGame(gameId: string): GameMeta | undefined {
