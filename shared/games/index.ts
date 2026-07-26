@@ -9,6 +9,7 @@ import { createLockers, applyLockersMove, type LockersOptions, type LockersMove,
 import { createPizza, applyPizzaMove, type PizzaOptions, type PizzaMove, type PizzaState } from './pizza.ts'
 import { createBalance, applyBalanceMove, type BalanceOptions, type BalanceMove, type BalanceState } from './balance.ts'
 import { createCoins, applyCoinsMove, type CoinsOptions, type CoinsMove, type CoinsState } from './coins.ts'
+import { createWater, applyWaterMove, type WaterOptions, type WaterMove, type WaterState } from './water.ts'
 
 /** One of the exactly-two participants the tutor picked. Game-agnostic. */
 export interface Player {
@@ -52,6 +53,14 @@ export const GAME_RULES: Record<string, GameRules> = {
     create: (options) => createCoins(options as CoinsOptions),
     applyMove: (state, playerIdx, move) => applyCoinsMove(state as CoinsState, playerIdx, move as CoinsMove),
     isTerminal: (state) => (state as CoinsState).winner !== null,
+  },
+  // A simultaneous race, not a turn-based game: its state carries `turn: -1`, the
+  // convention the server reads as "either chosen player may move their own side
+  // anytime" (see server/index.ts canPlay). Still zero server-side game logic.
+  water: {
+    create: (options) => createWater(options as WaterOptions),
+    applyMove: (state, playerIdx, move) => applyWaterMove(state as WaterState, playerIdx, move as WaterMove),
+    isTerminal: (state) => (state as WaterState).winner !== null,
   },
 }
 

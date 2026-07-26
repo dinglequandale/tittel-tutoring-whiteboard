@@ -199,6 +199,23 @@ function currentPlayerUserId(room: Room): string | null {
   return gm.players[turn]?.userId ?? null
 }
 
+/**
+ * Whether `userId` may send a play message (game-move / game-drag) right now.
+ * Turn-based games expose `turn: 0 | 1` and authorize only the player whose turn
+ * it is. A game may instead expose `turn: -1` to signal SIMULTANEOUS play — a
+ * race in which EITHER of the two chosen players may move their own side at any
+ * time (the water-jugs race). This stays game-agnostic: it's the same wire-
+ * protocol convention as `turn: 0 | 1`, and per-move legality still lives
+ * entirely inside GAME_RULES[gameId].applyMove.
+ */
+function canPlay(room: Room, userId: string): boolean {
+  const gm = room.game
+  if (!gm) return false
+  const turn = (gm.state as { turn?: unknown })?.turn
+  if (turn === -1) return gm.players.some((p) => p.userId === userId)
+  return userId === currentPlayerUserId(room)
+}
+
 function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
   const room = getOrCreateRoom(roomId)
   const client: ControlClient = {
@@ -323,7 +340,7 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
       const gm = room.game
       if (!gm) return
       if (!validUserId(msg.userId)) return
-      if (msg.userId !== currentPlayerUserId(room)) return
+      if (!canPlay(room, msg.userId)) return
       const rules = GAME_RULES[gm.gameId]
       if (!rules) return // unreachable: gameId was validated at game-start
       const playerIdx = gm.players.findIndex((p) => p.userId === msg.userId) as 0 | 1
@@ -338,7 +355,7 @@ function handleControl(ws: WebSocket, roomId: string, role: 'host' | 'guest') {
       const gm = room.game
       if (!gm) return
       if (!validUserId(msg.userId)) return
-      if (msg.userId !== currentPlayerUserId(room)) return
+      if (!canPlay(room, msg.userId)) return
       if (typeof msg.payload !== 'object' || msg.payload === null) return
       if (JSON.stringify(msg.payload).length > MAX_DRAG_PAYLOAD) return
       // Advisory only — never touches authoritative state, never stored, and

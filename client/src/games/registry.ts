@@ -113,6 +113,20 @@ export const GAMES: GameMeta[] = [
     // Its own lazy() boundary too — see the comment on Nim's Component above.
     Component: lazy(() => import('./coins/CoinsGame')),
   },
+  {
+    id: 'water',
+    title: 'Water Jugs Race',
+    blurb:
+      'A head-to-head race: each of you gets a 3 L and a 5 L jug. Fill, empty, and pour to hit the goal first — either one exact amount, or (Collect-all) every amount from 1 up to it. You can’t see your rival’s jugs!',
+    options: [
+      { key: 'smallCap', label: 'Small jug (liters)', kind: 'stepper', range: { min: 1, max: 12, default: 3 } },
+      { key: 'bigCap', label: 'Big jug (liters)', kind: 'stepper', range: { min: 1, max: 12, default: 5 } },
+      { key: 'target', label: 'Goal (liters)', kind: 'stepper', range: { min: 1, max: 12, default: 8 } },
+      { key: 'collectAll', label: 'Collect-all — race to make every amount from 1 up to the goal', kind: 'checkbox', default: false },
+    ],
+    // Its own lazy() boundary too — see the comment on Nim's Component above.
+    Component: lazy(() => import('./water/WaterGame')),
+  },
 ]
 
 export function findGame(gameId: string): GameMeta | undefined {

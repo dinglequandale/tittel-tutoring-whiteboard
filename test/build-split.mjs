@@ -58,6 +58,9 @@ const BALANCE_MARKERS = ['balance-stone', 'No winning move — balanced']
 // Coins: 'coins-coin' (a JSX className unique to its board) and the exact
 // mirror-hint text (a string literal unique to CoinsGame.tsx).
 const COINS_MARKERS = ['coins-coin', 'Copy the last coin through the center']
+// Water: 'water-jug' (a JSX className unique to its board) and the exact
+// opponent-status text (a string literal unique to WaterGame.tsx).
+const WATER_MARKERS = ['water-jug', 'still pouring']
 
 let failures = 0
 function check(name, ok) {
@@ -107,6 +110,10 @@ for (const marker of BALANCE_MARKERS) {
 }
 
 for (const marker of COINS_MARKERS) {
+  check(`entry chunk does NOT contain ${JSON.stringify(marker)}`, !entrySrc.includes(marker))
+}
+
+for (const marker of WATER_MARKERS) {
   check(`entry chunk does NOT contain ${JSON.stringify(marker)}`, !entrySrc.includes(marker))
 }
 
@@ -185,6 +192,25 @@ check(
     otherChunksWithLockers.every((f) => !otherChunksWithCoins.includes(f)) &&
     otherChunksWithPizza.every((f) => !otherChunksWithCoins.includes(f)) &&
     otherChunksWithBalance.every((f) => !otherChunksWithCoins.includes(f)),
+)
+
+const otherChunksWithWater = jsFiles.filter((f) => {
+  if (f === entryFile) return false
+  const src = fs.readFileSync(path.join(assetsDir, f), 'utf8')
+  return WATER_MARKERS.every((m) => src.includes(m))
+})
+check(
+  'a SEPARATE (non-entry) chunk contains every Water marker — Water actually split out',
+  otherChunksWithWater.length > 0,
+)
+check(
+  "Water's chunk is its own file, distinct from Nim/Lockers/Pizza/Balance/Coins",
+  otherChunksWithWater.length > 0 &&
+    otherChunksWithNim.every((f) => !otherChunksWithWater.includes(f)) &&
+    otherChunksWithLockers.every((f) => !otherChunksWithWater.includes(f)) &&
+    otherChunksWithPizza.every((f) => !otherChunksWithWater.includes(f)) &&
+    otherChunksWithBalance.every((f) => !otherChunksWithWater.includes(f)) &&
+    otherChunksWithCoins.every((f) => !otherChunksWithWater.includes(f)),
 )
 
 console.log(`\n${failures === 0 ? 'ALL GREEN' : failures + ' FAILURE(S)'}`)
