@@ -10,21 +10,24 @@ function check(name, ok) {
   if (!ok) failures++
 }
 
+function board(j) {
+  return { small: j.small ?? 0, big: j.big ?? 0, stash: j.stash ?? 0, ops: j.ops ?? 0, found: j.found ?? [] }
+}
+
 /** Build a bare state so tests can set exact jug amounts createWater never would.
  *  Defaults to single-target mode (required = [target]); pass `required` for a
- *  collect-all board. */
-function pos(a, b, target, jug0 = { small: 0, big: 0 }, jug1 = { small: 0, big: 0 }, required = [target]) {
+ *  collect-all board, and `opts` for `{ stash, collaborative }`. */
+function pos(a, b, target, jug0 = {}, jug1 = {}, required = [target], opts = {}) {
   return {
     turn: -1,
     smallCap: a,
     bigCap: b,
     target,
     collectAll: required.length > 1,
+    collaborative: !!opts.collaborative,
+    stash: !!opts.stash,
     required,
-    jugs: [
-      { small: jug0.small, big: jug0.big, ops: jug0.ops ?? 0, found: jug0.found ?? [] },
-      { small: jug1.small, big: jug1.big, ops: jug1.ops ?? 0, found: jug1.found ?? [] },
-    ],
+    jugs: [board(jug0), board(jug1)],
     winner: null,
   }
 }
@@ -223,6 +226,130 @@ for (const [sc, bc, target] of [[3, 5, 8], [3, 5, 4], [3, 5, 1], [3, 5, 7], [5, 
     s = r.state
   }
   check('collect: player 1 can win, player 0 untouched', s.winner === 1 && s.jugs[0].found.length === 0)
+}
+
+// ---- collaborative mode -----------------------------------------------------
+{
+  const s = createWater({ smallCap: 3, bigCap: 5, target: 8, collaborative: true })
+  check('collab: flag set', s.collaborative === true)
+  check('collab: still simultaneous (turn -1)', s.turn === -1)
+}
+{
+  // The tutor may send under EITHER seat — both land on the one shared board.
+  const s = pos(3, 5, 8, {}, {}, [8], { collaborative: true })
+  const a = applyWaterMove(s, 1, { op: 'fill', jug: 'big' })
+  check('collab: a seat-1 move lands on the shared board', a.ok && a.state.jugs[0].big === 5)
+  check('collab: the second board stays untouched', a.ok && a.state.jugs[1].big === 0 && a.state.jugs[1].ops === 0)
+  const b = applyWaterMove(a.state, 0, { op: 'fill', jug: 'small' })
+  check('collab: moves from both seats accumulate on the same board', b.ok && b.state.jugs[0].small === 3 && b.state.jugs[0].ops === 2)
+  check('collab: solving it wins as board 0 whoever sent the move', b.state.winner === 0)
+}
+check(
+  'collab: the hint reads the shared board no matter which seat is asked',
+  (() => {
+    const s = pos(3, 5, 8, { small: 0, big: 5 }, {}, [8], { collaborative: true })
+    const a = optimalWaterMove(s, 0)
+    const b = optimalWaterMove(s, 1)
+    return JSON.stringify(a) === JSON.stringify(b) && a.op === 'fill' && a.jug === 'small'
+  })(),
+)
+
+// ---- the infinite reservoir -------------------------------------------------
+{
+  const s = createWater({ smallCap: 3, bigCap: 5, target: 12, stash: true })
+  check('stash: flag set', s.stash === true)
+  check('stash: a goal past small+big is allowed', s.target === 12)
+  check('stash: boards start with an empty reservoir', s.jugs[0].stash === 0)
+  check('stash: off by default', createWater({ smallCap: 3, bigCap: 5, target: 8 }).stash === false)
+  check('stash: without it the goal is still clamped to small+big', createWater({ smallCap: 3, bigCap: 5, target: 12 }).target === 8)
+  check('stash: the goal is capped at MAX_STASH_TARGET', createWater({ smallCap: 3, bigCap: 5, target: 999, stash: true }).target === 30)
+}
+{
+  const opts = { stash: true }
+  const r = applyWaterMove(pos(3, 5, 12, { small: 3 }, {}, [12], opts), 0, { op: 'pour', jug: 'small', to: 'stash' })
+  check('stash: pouring a jug in moves ALL of it (no capacity to fill)', r.ok && r.state.jugs[0].small === 0 && r.state.jugs[0].stash === 3)
+}
+{
+  const opts = { stash: true }
+  const r = applyWaterMove(pos(3, 5, 12, { stash: 9 }, {}, [12], opts), 0, { op: 'pour', jug: 'stash', to: 'big' })
+  check('stash: drawing out fills the destination to the brim', r.ok && r.state.jugs[0].big === 5 && r.state.jugs[0].stash === 4)
+}
+{
+  const opts = { stash: true }
+  const r = applyWaterMove(pos(3, 5, 12, { stash: 2 }, {}, [12], opts), 0, { op: 'pour', jug: 'stash', to: 'small' })
+  check('stash: drawing less than a jugful leaves a partial amount', r.ok && r.state.jugs[0].small === 2 && r.state.jugs[0].stash === 0)
+}
+{
+  const opts = { stash: true }
+  const r = applyWaterMove(pos(3, 5, 12, { stash: 4 }, {}, [12], opts), 0, { op: 'empty', jug: 'stash' })
+  check('stash: it can be dumped out', r.ok && r.state.jugs[0].stash === 0)
+}
+{
+  const opts = { stash: true }
+  // 4 stashed + a full big jug + a full small jug = 12, the point of the option:
+  // an amount two 3/5 jugs could never show between them.
+  const r = applyWaterMove(pos(3, 5, 12, { small: 0, big: 5, stash: 4 }, {}, [12], opts), 0, { op: 'fill', jug: 'small' })
+  check('stash: the goal counts jugs + reservoir together', r.ok && r.state.winner === 0)
+}
+check(
+  'stash: filling it from the tap is rejected (it would never end)',
+  applyWaterMove(pos(3, 5, 12, {}, {}, [12], { stash: true }), 0, { op: 'fill', jug: 'stash' }).ok === false,
+)
+check(
+  'stash: pouring out of it with no destination is rejected',
+  applyWaterMove(pos(3, 5, 12, { stash: 5 }, {}, [12], { stash: true }), 0, { op: 'pour', jug: 'stash' }).ok === false,
+)
+check(
+  'stash: reservoir moves are rejected when the option is off',
+  applyWaterMove(pos(3, 5, 8, { small: 3 }), 0, { op: 'pour', jug: 'small', to: 'stash' }).ok === false,
+)
+check(
+  'stash: an unknown destination is rejected',
+  applyWaterMove(pos(3, 5, 8, { small: 3 }), 0, { op: 'pour', jug: 'small', to: 'bucket' }).ok === false,
+)
+{
+  const s = pos(3, 5, 12, { small: 3, stash: 4 }, {}, [12], { stash: true })
+  const before = JSON.stringify(s)
+  applyWaterMove(s, 0, { op: 'pour', jug: 'small', to: 'stash' })
+  check('stash: purity — a reservoir move leaves the input untouched', JSON.stringify(s) === before)
+}
+{
+  // Coprime caps + a reservoir = every positive integer, which is the whole
+  // pedagogical point: 1..12 is all reachable even though the jugs hold 8.
+  const s = createWater({ smallCap: 3, bigCap: 5, target: 12, stash: true, collectAll: true })
+  check(
+    'stash: collect-all requires every amount 1..12 with coprime 3/5',
+    JSON.stringify(s.required) === JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
+  )
+}
+{
+  // A shared factor still bounds it — 2/4 can only ever show even amounts, with
+  // or without somewhere to stash them.
+  const s = createWater({ smallCap: 2, bigCap: 4, target: 10, stash: true, collectAll: true })
+  check('stash: a shared factor keeps the odds unreachable (2/4)', JSON.stringify(s.required) === JSON.stringify([2, 4, 6, 8, 10]))
+  check('stash: an impossible single goal falls back to the nearest reachable one', createWater({ smallCap: 2, bigCap: 4, target: 7, stash: true }).target === 6)
+}
+check(
+  'an impossible goal falls back to the nearest reachable one without a reservoir too',
+  createWater({ smallCap: 2, bigCap: 4, target: 3 }).target === 2,
+)
+{
+  // Hint-driven play must actually solve a reservoir board — for a goal beyond
+  // small+big, and for the full 1..12 collection.
+  for (const collectAll of [false, true]) {
+    let s = createWater({ smallCap: 3, bigCap: 5, target: 12, stash: true, collectAll })
+    let steps = 0
+    while (steps < 600) {
+      const move = optimalWaterMove(s, 0)
+      if (move === null) break
+      const r = applyWaterMove(s, 0, move)
+      if (!r.ok) break
+      steps++
+      s = r.state
+      if (s.winner === 0) break
+    }
+    check(`stash: hint-driven play solves the 12 L board (collectAll ${collectAll})`, s.winner === 0)
+  }
 }
 
 console.log(`\n${failures === 0 ? 'ALL GREEN' : failures + ' FAILURE(S)'}`)

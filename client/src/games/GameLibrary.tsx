@@ -68,11 +68,21 @@ function GameSetup({
     })
   }
 
-  const canStart = pickedIds.length === 2
+  // Some games have a mode where the two seats don't drive anything — the tutor
+  // runs it for the whole class (Water's Collaborative). The wire format still
+  // wants exactly two players, so top the picks up from the room rather than
+  // making the tutor choose students who won't be taking turns. Which option
+  // means that is registry data (`seatsOptionalWhen`), never a check on game.id.
+  const seatsOptional =
+    game.seatsOptionalWhen !== undefined && values[game.seatsOptionalWhen.key] === game.seatsOptionalWhen.value
+  const seatIds = seatsOptional
+    ? [...pickedIds, ...participants.map((p) => p.userId).filter((id) => !pickedIds.includes(id))].slice(0, 2)
+    : pickedIds
+  const canStart = seatIds.length === 2
 
   function start() {
     if (!canStart) return
-    const players = pickedIds.map((id) => ({
+    const players = seatIds.map((id) => ({
       userId: id,
       name: participants.find((p) => p.userId === id)?.name ?? 'Player',
     }))
@@ -92,7 +102,9 @@ function GameSetup({
       <h3 className="game-setup-title">{game.title}</h3>
 
       <div className="game-setup-section">
-        <div className="game-setup-label">Players (pick exactly 2)</div>
+        <div className="game-setup-label">
+          {seatsOptional ? 'Players — not needed in this mode; you drive it' : 'Players (pick exactly 2)'}
+        </div>
         {participants.length === 0 ? (
           <p className="game-setup-empty">No one&rsquo;s in the room yet.</p>
         ) : (

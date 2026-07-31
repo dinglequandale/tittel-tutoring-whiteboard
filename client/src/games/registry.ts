@@ -47,6 +47,13 @@ export interface GameMeta {
    *  tutor picked above — for values the registry fixes rather than exposing
    *  on the setup screen (e.g. Nim's maxTake). */
   fixedOptions?: Record<string, unknown>
+  /** Names a checkbox option whose value turns the game into one the two seats
+   *  don't really matter for — a whole-class activity the tutor drives (Water's
+   *  Collaborative mode). The wire format still carries exactly PLAYER_COUNT
+   *  players, so the setup screen just fills the seats in itself instead of
+   *  making the tutor pick two students who won't be taking turns. Data-driven
+   *  on purpose: GameLibrary stays free of per-game special cases. */
+  seatsOptionalWhen?: { key: string; value: boolean }
   Component: LazyExoticComponent<ComponentType<GameComponentProps>>
 }
 
@@ -115,15 +122,35 @@ export const GAMES: GameMeta[] = [
   },
   {
     id: 'water',
-    title: 'Water Jugs Race',
+    title: 'Water Jugs',
     blurb:
-      'A head-to-head race: each of you gets a 3 L and a 5 L jug. Fill, empty, and pour to hit the goal first — either one exact amount, or (Collect-all) every amount from 1 up to it. You can’t see your rival’s jugs!',
+      'A 3 L and a 5 L jug. Fill, empty, and pour to hit the goal — head-to-head (you can’t see your rival’s jugs!) or Collaborative, where you pour and the class calls the moves. Add the infinite reservoir to reach amounts past 3 + 5.',
     options: [
+      {
+        key: 'collaborative',
+        label: 'Collaborative — one shared set of jugs that YOU pour while the class calls the moves',
+        kind: 'checkbox',
+        default: false,
+      },
       { key: 'smallCap', label: 'Small jug (liters)', kind: 'stepper', range: { min: 1, max: 12, default: 3 } },
       { key: 'bigCap', label: 'Big jug (liters)', kind: 'stepper', range: { min: 1, max: 12, default: 5 } },
-      { key: 'target', label: 'Goal (liters)', kind: 'stepper', range: { min: 1, max: 12, default: 8 } },
-      { key: 'collectAll', label: 'Collect-all — race to make every amount from 1 up to the goal', kind: 'checkbox', default: false },
+      // Max matches MAX_STASH_TARGET in shared/games/water.ts (kept in sync by
+      // hand — this file imports no values from a game's rules module, only
+      // types, so a game's chunk never leaks into the registry's). Without the
+      // reservoir the rules clamp the goal down to small + big.
+      { key: 'target', label: 'Goal (liters) — past small + big needs the reservoir', kind: 'stepper', range: { min: 1, max: 30, default: 8 } },
+      {
+        key: 'stash',
+        label: 'Infinite reservoir — an unlimited jug to stash water in (reach any amount, not just up to small + big)',
+        kind: 'checkbox',
+        default: false,
+      },
+      { key: 'collectAll', label: 'Collect-all — make every amount from 1 up to the goal', kind: 'checkbox', default: false },
     ],
+    // Collaborative mode is a whole-class activity the tutor pours for, so the
+    // two seats are just identities the moves ride under — the setup screen
+    // fills them in rather than asking.
+    seatsOptionalWhen: { key: 'collaborative', value: true },
     // Its own lazy() boundary too — see the comment on Nim's Component above.
     Component: lazy(() => import('./water/WaterGame')),
   },

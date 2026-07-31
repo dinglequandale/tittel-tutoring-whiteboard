@@ -182,6 +182,96 @@
   padding: 0.3rem 0.55rem;
 }
 
+/* ---------- The infinite reservoir ---------- */
+/* Deliberately NOT drawn like a jug: no brim, no liter lines, a dashed outline
+   and a different (violet) water so it reads as "the pile you've set aside"
+   rather than a third measuring vessel. Its column is scaled against the goal,
+   so it just tops out instead of overflowing. */
+.water-stash-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.8rem;
+}
+
+.water-stash-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.water-stash {
+  position: relative;
+  width: 5.6rem;
+  height: 3.6rem;
+  border: 3px dashed #7c3aed;
+  border-top: none;
+  border-radius: 0.35rem 0.35rem 0.8rem 0.8rem;
+  background: #f5f3ff;
+  overflow: hidden;
+}
+
+.water-stash-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(180deg, #a78bfa, #7c3aed);
+  border-top: 2px solid #ddd6fe;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .water-stash-fill {
+    transition: height 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}
+
+.water-stash-amount {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0.25rem;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #4c1d95;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
+}
+
+.water-stash-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-bottom: 0.9rem;
+}
+
+.water-stash-line {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.water-stash-label {
+  width: 2.6rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+}
+
+.water-stash-controls .dock-btn {
+  font-size: 0.72rem;
+  padding: 0.25rem 0.5rem;
+}
+
+/* Collaborative mode: one board, the tutor pouring, everyone else calling it. */
+.water-collab-note {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
 /* Collect-all checklist: the amounts 1..N as little chips, filled in as the
    player produces each one. */
 .water-checklist {
