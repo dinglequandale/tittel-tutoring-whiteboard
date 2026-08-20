@@ -1,0 +1,410 @@
+/* "Don't Make a Triangle" (Sim) board UI. Imported only from SimGame.tsx, so it
+   lands in Sim's own lazy chunk rather than the entry bundle — see
+   games-spec.md and test/build-split.mjs.
+
+   Color note: this game is red-vs-blue on a shared whiteboard, often projected,
+   sometimes to a colorblind student. Hue alone is never the signal — red
+   segments are solid and blue segments are dashed, and the legend swatches
+   carry the same distinction. */
+
+.sim-game {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  position: relative;
+}
+
+.sim-banner {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.sim-ink {
+  font-weight: 800;
+}
+
+.sim-ink.red {
+  color: #dc2626;
+}
+
+.sim-ink.blue {
+  color: #2563eb;
+}
+
+.sim-banner-loss {
+  position: relative;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--brand);
+}
+
+/* The draw. At 6 dots it can't happen (that's the theorem the class proves); at
+   5 it's exactly the coloring they're hunting for, so it gets the biggest,
+   loudest treatment on the board rather than reading as the game quietly
+   running out of segments. */
+.sim-banner-draw {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.8rem 1rem;
+  border-radius: 0.8rem;
+  background: linear-gradient(135deg, #ecfdf5, #eff6ff);
+  border: 2px solid #34d399;
+}
+
+.sim-draw-headline {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #047857;
+}
+
+.sim-draw-sub {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #334155;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sim-banner-draw {
+    animation: sim-draw-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .sim-banner-loss {
+    animation: sim-draw-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+}
+
+@keyframes sim-draw-pop {
+  0% {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.04);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* CSS-only confetti, same approach as Nim's and Balance's. */
+.sim-confetti {
+  position: relative;
+  height: 0;
+  pointer-events: none;
+}
+
+.sim-confetti-piece {
+  position: absolute;
+  top: -4px;
+  width: 8px;
+  height: 14px;
+  border-radius: 2px;
+  opacity: 0.85;
+}
+
+.sim-confetti-piece:nth-child(1) { left: 2%; background: #f97316; }
+.sim-confetti-piece:nth-child(2) { left: 12%; background: #eab308; }
+.sim-confetti-piece:nth-child(3) { left: 22%; background: #22c55e; }
+.sim-confetti-piece:nth-child(4) { left: 34%; background: #3b82f6; }
+.sim-confetti-piece:nth-child(5) { left: 46%; background: #ec4899; }
+.sim-confetti-piece:nth-child(6) { left: 58%; background: #f97316; }
+.sim-confetti-piece:nth-child(7) { left: 68%; background: #eab308; }
+.sim-confetti-piece:nth-child(8) { left: 78%; background: #22c55e; }
+.sim-confetti-piece:nth-child(9) { left: 88%; background: #3b82f6; }
+.sim-confetti-piece:nth-child(10) { left: 96%; background: #ec4899; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .sim-confetti-piece {
+    animation: sim-confetti-fall 1.1s ease-in forwards;
+  }
+  .sim-confetti-piece:nth-child(2) { animation-delay: 0.04s; }
+  .sim-confetti-piece:nth-child(3) { animation-delay: 0.09s; }
+  .sim-confetti-piece:nth-child(4) { animation-delay: 0.02s; }
+  .sim-confetti-piece:nth-child(5) { animation-delay: 0.12s; }
+  .sim-confetti-piece:nth-child(6) { animation-delay: 0.06s; }
+  .sim-confetti-piece:nth-child(7) { animation-delay: 0.15s; }
+  .sim-confetti-piece:nth-child(8) { animation-delay: 0.03s; }
+  .sim-confetti-piece:nth-child(9) { animation-delay: 0.1s; }
+  .sim-confetti-piece:nth-child(10) { animation-delay: 0.07s; }
+}
+
+@keyframes sim-confetti-fall {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(74px) rotate(260deg);
+    opacity: 0;
+  }
+}
+
+/* ---------- Legend ---------- */
+.sim-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.sim-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  padding: 0.2rem 0.7rem;
+}
+
+/* Whose turn it is, without relying on hue: the active seat's chip fills in. */
+.sim-legend-chip.active.red {
+  color: #991b1b;
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+
+.sim-legend-chip.active.blue {
+  color: #1e3a8a;
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
+.sim-legend-swatch {
+  width: 22px;
+  height: 0;
+}
+
+.sim-legend-chip.red .sim-legend-swatch {
+  border-top: 4px solid #dc2626;
+}
+
+.sim-legend-chip.blue .sim-legend-swatch {
+  border-top: 4px dashed #2563eb;
+}
+
+.sim-remaining {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* ---------- Board ---------- */
+.sim-board {
+  width: min(420px, 100%);
+  align-self: center;
+  touch-action: manipulation;
+}
+
+.sim-edge {
+  stroke-linecap: round;
+  fill: none;
+}
+
+.sim-edge.open {
+  stroke: #dbe2ea;
+  stroke-width: 2.5;
+}
+
+.sim-edge.red {
+  stroke: #dc2626;
+  stroke-width: 6;
+}
+
+/* Blue is dashed, not just a different hue — the two players have to be
+   separable at a glance on a projector and for a colorblind student. */
+.sim-edge.blue {
+  stroke: #2563eb;
+  stroke-width: 6;
+  stroke-dasharray: 11 7;
+}
+
+/* The triangle that ended the game. */
+.sim-edge.losing {
+  stroke-width: 9;
+  filter: drop-shadow(0 0 6px rgba(220, 38, 38, 0.55));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sim-edge.losing {
+    animation: sim-losing-flash 0.75s ease-in-out 4;
+  }
+}
+
+@keyframes sim-losing-flash {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* Tutor-only: an uncolored segment that would close the current player's own
+   triangle. Rendered on the host screen only (SimGame guards on isHost), never
+   broadcast to students. */
+.sim-edge.suicide {
+  stroke: #f59e0b;
+  stroke-width: 4;
+  stroke-dasharray: 4 5;
+}
+
+/* Proof overlay (room-wide, via game-view): the highlighted dot's segments pop,
+   everything else recedes, so the class can count "n-1 segments, two colors". */
+.sim-edge.dim {
+  opacity: 0.12;
+}
+
+.sim-edge.incident.open {
+  stroke: #94a3b8;
+  stroke-width: 3.5;
+}
+
+.sim-edge.incident:not(.open) {
+  filter: drop-shadow(0 0 5px rgba(15, 23, 42, 0.35));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sim-edge {
+    transition: opacity 0.15s ease, stroke-width 0.1s ease;
+  }
+}
+
+/* The click targets: invisible, fat, and only present for segments the viewer
+   can actually play. `pointer-events: stroke` is what makes a transparent
+   stroke hittable at all. */
+.sim-edge-hit {
+  stroke: transparent;
+  fill: none;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+/* Hover feedback comes from the hit line itself rather than a sibling selector:
+   the fat transparent stroke sits ON TOP of the thin visible one, so tinting it
+   faintly reads as "this is the segment you're about to color" across the whole
+   generous target, not just the 2.5px line under the pointer. */
+.sim-edge-hit:hover {
+  stroke: rgba(15, 23, 42, 0.1);
+}
+
+.sim-dot {
+  fill: #0f172a;
+  stroke: white;
+  stroke-width: 2;
+}
+
+.sim-dot.pickable {
+  cursor: pointer;
+}
+
+.sim-dot-group.highlighted .sim-dot {
+  fill: #7c3aed;
+  stroke: #ede9fe;
+  stroke-width: 4;
+}
+
+.sim-dot-label {
+  font-size: 13px;
+  font-weight: 700;
+  fill: var(--muted);
+  user-select: none;
+}
+
+.sim-dot-group.highlighted .sim-dot-label {
+  fill: #6d28d9;
+}
+
+/* ---------- Proof readout ---------- */
+.sim-proof-readout {
+  align-self: center;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--ink);
+  background: #faf5ff;
+  border: 1px solid #ddd6fe;
+  border-radius: 0.7rem;
+  padding: 0.5rem 0.9rem;
+}
+
+.sim-proof-sub {
+  margin-top: 0.25rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #6d28d9;
+}
+
+/* ---------- Host controls ---------- */
+.sim-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-top: 1px dashed #e2e8f0;
+  padding-top: 0.7rem;
+}
+
+.sim-control-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.sim-control-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.sim-toggle {
+  font-size: 0.75rem;
+}
+
+.sim-toggle.active {
+  border-color: #f59e0b;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.sim-hint {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+}
+
+.sim-stepper {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.sim-stepper .dock-btn {
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.sim-stepper-value {
+  min-width: 1.4rem;
+  text-align: center;
+  font-weight: 700;
+}
+
+.sim-control-note {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--muted);
+}

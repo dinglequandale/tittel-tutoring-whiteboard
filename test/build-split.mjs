@@ -61,6 +61,10 @@ const COINS_MARKERS = ['coins-coin', 'Copy the last coin through the center']
 // Water: 'water-jug' (a JSX className unique to its board) and the exact
 // opponent-status text (a string literal unique to WaterGame.tsx).
 const WATER_MARKERS = ['water-jug', 'still pouring']
+// Sim: 'sim-edge-hit' (the className on each segment's wide invisible click
+// target, unique to SimGame.tsx) and the draw headline — the outcome the whole
+// lesson turns on, and a string literal unique to that module.
+const SIM_MARKERS = ['sim-edge-hit', 'Nobody made a triangle']
 
 let failures = 0
 function check(name, ok) {
@@ -114,6 +118,10 @@ for (const marker of COINS_MARKERS) {
 }
 
 for (const marker of WATER_MARKERS) {
+  check(`entry chunk does NOT contain ${JSON.stringify(marker)}`, !entrySrc.includes(marker))
+}
+
+for (const marker of SIM_MARKERS) {
   check(`entry chunk does NOT contain ${JSON.stringify(marker)}`, !entrySrc.includes(marker))
 }
 
@@ -211,6 +219,26 @@ check(
     otherChunksWithPizza.every((f) => !otherChunksWithWater.includes(f)) &&
     otherChunksWithBalance.every((f) => !otherChunksWithWater.includes(f)) &&
     otherChunksWithCoins.every((f) => !otherChunksWithWater.includes(f)),
+)
+
+const otherChunksWithSim = jsFiles.filter((f) => {
+  if (f === entryFile) return false
+  const src = fs.readFileSync(path.join(assetsDir, f), 'utf8')
+  return SIM_MARKERS.every((m) => src.includes(m))
+})
+check(
+  'a SEPARATE (non-entry) chunk contains every Sim marker — Sim actually split out',
+  otherChunksWithSim.length > 0,
+)
+check(
+  "Sim's chunk is its own file, distinct from Nim/Lockers/Pizza/Balance/Coins/Water",
+  otherChunksWithSim.length > 0 &&
+    otherChunksWithNim.every((f) => !otherChunksWithSim.includes(f)) &&
+    otherChunksWithLockers.every((f) => !otherChunksWithSim.includes(f)) &&
+    otherChunksWithPizza.every((f) => !otherChunksWithSim.includes(f)) &&
+    otherChunksWithBalance.every((f) => !otherChunksWithSim.includes(f)) &&
+    otherChunksWithCoins.every((f) => !otherChunksWithSim.includes(f)) &&
+    otherChunksWithWater.every((f) => !otherChunksWithSim.includes(f)),
 )
 
 console.log(`\n${failures === 0 ? 'ALL GREEN' : failures + ' FAILURE(S)'}`)

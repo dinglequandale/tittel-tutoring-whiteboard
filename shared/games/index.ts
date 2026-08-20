@@ -10,6 +10,7 @@ import { createPizza, applyPizzaMove, type PizzaOptions, type PizzaMove, type Pi
 import { createBalance, applyBalanceMove, type BalanceOptions, type BalanceMove, type BalanceState } from './balance.ts'
 import { createCoins, applyCoinsMove, type CoinsOptions, type CoinsMove, type CoinsState } from './coins.ts'
 import { createWater, applyWaterMove, type WaterOptions, type WaterMove, type WaterState } from './water.ts'
+import { createSim, applySimMove, type SimOptions, type SimMove, type SimState } from './sim.ts'
 
 /** One of the exactly-two participants the tutor picked. Game-agnostic. */
 export interface Player {
@@ -61,6 +62,14 @@ export const GAME_RULES: Record<string, GameRules> = {
     create: (options) => createWater(options as WaterOptions),
     applyMove: (state, playerIdx, move) => applyWaterMove(state as WaterState, playerIdx, move as WaterMove),
     isTerminal: (state) => (state as WaterState).winner !== null,
+  },
+  // Terminality reads `done`, not `winner`: a Sim board can fill up with no
+  // monochromatic triangle at all (a draw), which is terminal with nobody
+  // winning — and at 5 dots that outcome is the point of the lesson.
+  sim: {
+    create: (options) => createSim(options as SimOptions),
+    applyMove: (state, playerIdx, move) => applySimMove(state as SimState, playerIdx, move as SimMove),
+    isTerminal: (state) => (state as SimState).done,
   },
 }
 

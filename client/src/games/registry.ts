@@ -154,6 +154,23 @@ export const GAMES: GameMeta[] = [
     // Its own lazy() boundary too — see the comment on Nim's Component above.
     Component: lazy(() => import('./water/WaterGame')),
   },
+  {
+    id: 'sim',
+    title: "Don't Make a Triangle",
+    blurb:
+      'Six dots, every pair joined. Take turns coloring one segment in your color. Make a triangle in your own color and you lose. Can a game ever end in a draw?',
+    options: [
+      // Range matches MIN_DOTS/MAX_DOTS in shared/games/sim.ts (kept in sync by
+      // hand — this file imports no values from a rules module, only types).
+      // 6 is the lesson's headline (a draw is impossible: R(3,3) = 6); 5 is the
+      // counterexample the class then hunts for. Deliberately NO misère
+      // checkbox: normal-play Sim is degenerate (player 1 just builds a
+      // triangle and wins on move 5 with no counterplay), so misère only.
+      { key: 'dots', label: 'Number of dots', kind: 'stepper', range: { min: 4, max: 8, default: 6 } },
+    ],
+    // Its own lazy() boundary too — see the comment on Nim's Component above.
+    Component: lazy(() => import('./sim/SimGame')),
+  },
 ]
 
 export function findGame(gameId: string): GameMeta | undefined {
